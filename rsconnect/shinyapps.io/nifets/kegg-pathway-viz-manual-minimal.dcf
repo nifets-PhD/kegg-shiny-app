@@ -1,0 +1,10 @@
+name: kegg-pathway-viz-manual-minimal
+title: KEGG Visualizer (Minimal)
+username: nifets
+account: nifets
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 15160438
+bundleId: 10726870
+url: https://nifets.shinyapps.io/kegg-pathway-viz-manual-minimal/
+version: 1

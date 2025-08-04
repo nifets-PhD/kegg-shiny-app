@@ -1,0 +1,10 @@
+name: kegg-pathway-visualizer
+title: KEGG Pathway Visualizer
+username: nifets
+account: nifets
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 15160345
+bundleId:
+url: https://nifets.shinyapps.io/kegg-pathway-visualizer/
+version: 1

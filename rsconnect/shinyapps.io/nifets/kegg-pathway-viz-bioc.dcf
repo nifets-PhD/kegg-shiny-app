@@ -1,0 +1,10 @@
+name: kegg-pathway-viz-bioc
+title: KEGG Pathway Visualizer - Biological Network Explorer
+username: nifets
+account: nifets
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 15160449
+bundleId:
+url: https://nifets.shinyapps.io/kegg-pathway-viz-bioc/
+version: 1
