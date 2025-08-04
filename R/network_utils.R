@@ -1,0 +1,453 @@
+# Helper functions for network visualization
+
+create_network_visualization <- function(nodes, edges, layout = "forceAtlas2Based", 
+                                       node_color = "#97C2FC", node_size = 25,
+                                       edge_color = "#848484", edge_width = 2,
+                                       repulsion_strength = 2000, spring_length = 200, 
+                                       spring_strength = 0.05, enable_stabilization = TRUE,
+                                       hierarchical_direction = "UD", hierarchical_spacing = 200) {
+    
+    # Validate inputs
+    if (is.null(nodes) || nrow(nodes) == 0) {
+        nodes <- data.frame(
+            id = "placeholder",
+            label = "No data available",
+            stringsAsFactors = FALSE
+        )
+        edges <- data.frame(
+            from = character(0),
+            to = character(0),
+            stringsAsFactors = FALSE
+        )
+    }
+    
+    if (is.null(edges)) {
+        edges <- data.frame(
+            from = character(0),
+            to = character(0),
+            stringsAsFactors = FALSE
+        )
+    }
+    
+    # Prepare nodes and edges
+    vis_nodes <- prepare_nodes(nodes, color = node_color, size = node_size)
+    vis_edges <- prepare_edges(edges, color = edge_color, width = edge_width, 
+                              dense_network = nrow(nodes) > 50)
+    
+    # Create base network with essential settings only
+    network <- visNetwork(vis_nodes, vis_edges) %>%
+        visInteraction(
+            navigationButtons = TRUE, 
+            hover = TRUE,
+            zoomView = TRUE,
+            dragView = TRUE
+        ) %>%
+        visOptions(
+            highlightNearest = list(enabled = TRUE, hover = TRUE, degree = 1),
+            nodesIdSelection = list(
+                enabled = TRUE,
+                values = nodes$id[nodes$type == "gene" | is.na(nodes$type)]
+            )
+        ) %>%
+        visEvents(select = "function(nodes) {
+            Shiny.onInputChange('pathway_network_selected', nodes.nodes);
+        }")
+    
+    # Apply layout-specific settings
+    if (layout == "kegg_layout") {
+        # Use KEGG's original coordinates if available
+        if (!is.null(nodes$x) && !is.null(nodes$y) && any(!is.na(nodes$x))) {
+            
+            # Apply KEGG coordinates directly (no scaling)
+            vis_nodes$x <- nodes$x
+            vis_nodes$y <- nodes$y
+            
+            # Apply KEGG styling if available
+            if (!is.null(nodes$kegg_bgcolor)) {
+                for (i in seq_len(nrow(vis_nodes))) {
+                    if (!is.na(nodes$kegg_bgcolor[i])) {
+                        vis_nodes$color[i] <- nodes$kegg_bgcolor[i]
+                    }
+                    if (!is.na(nodes$kegg_shape[i])) {
+                        # Map KEGG shapes to visNetwork shapes
+                        kegg_shape <- nodes$kegg_shape[i]
+                        vis_nodes$shape[i] <- switch(kegg_shape,
+                                                   "rectangle" = "box",
+                                                   "circle" = "circle",
+                                                   "roundrectangle" = "box",
+                                                   "ellipse" = "ellipse",
+                                                   "box"  # default
+                        )
+                    }
+                    if (!is.na(nodes$kegg_width[i])) {
+                        # Scale width appropriately for visNetwork
+                        vis_nodes$size[i] <- max(15, min(50, nodes$kegg_width[i] * 0.8))
+                    }
+                }
+            }
+            
+            # Use fixed positions - this is key for maintaining KEGG layout
+            network <- network %>%
+                visNodes(
+                    physics = FALSE, 
+                    fixed = list(x = TRUE, y = TRUE),
+                    chosen = FALSE
+                ) %>%
+                visPhysics(enabled = FALSE) %>%
+                visLayout(improvedLayout = FALSE, randomSeed = NULL) %>%
+                visOptions(
+                    autoResize = TRUE,
+                    height = "100%",
+                    width = "100%",
+                    clickToUse = FALSE
+                )
+            
+            cat("Applied authentic KEGG layout with original coordinates\n")
+            
+            # Print coordinate info for debugging
+            coord_range_x <- range(vis_nodes$x, na.rm = TRUE)
+            coord_range_y <- range(vis_nodes$y, na.rm = TRUE)
+            cat("KEGG coordinate ranges - X: [", coord_range_x[1], "-", coord_range_x[2], 
+                "] Y: [", coord_range_y[1], "-", coord_range_y[2], "]\n")
+                
+        } else {
+            # Fall back to hierarchical if no coordinates
+            cat("No KEGG coordinates available, falling back to hierarchical layout\n")
+            network <- network %>%
+                visHierarchicalLayout(
+                    direction = "UD",
+                    levelSeparation = 150,
+                    nodeSpacing = 100
+                ) %>%
+                visPhysics(enabled = FALSE)
+        }
+        
+    } else if (layout == "hierarchical") {
+        network <- network %>%
+            visHierarchicalLayout(
+                direction = hierarchical_direction,
+                levelSeparation = hierarchical_spacing,
+                nodeSpacing = 150
+            ) %>%
+            visPhysics(enabled = FALSE)
+            
+    } else if (layout == "forceAtlas2Based") {
+        network <- network %>%
+            visPhysics(
+                enabled = TRUE,
+                solver = "forceAtlas2Based",
+                forceAtlas2Based = list(
+                    gravitationalConstant = -repulsion_strength,
+                    centralGravity = 0.01,
+                    springLength = spring_length,
+                    springConstant = spring_strength,
+                    damping = 0.4,
+                    avoidOverlap = 0.5
+                ),
+                stabilization = list(
+                    enabled = enable_stabilization,
+                    iterations = 1000,
+                    updateInterval = 25
+                )
+            )
+            
+    } else if (layout == "physics") {
+        network <- network %>%
+            visPhysics(
+                enabled = TRUE,
+                solver = "barnesHut",
+                barnesHut = list(
+                    gravitationalConstant = -repulsion_strength,
+                    centralGravity = 0.3,
+                    springLength = spring_length,
+                    springConstant = spring_strength,
+                    damping = 0.09
+                ),
+                stabilization = list(
+                    enabled = enable_stabilization,
+                    iterations = 1000
+                )
+            )
+            
+    } else {
+        # Circular or random layout
+        network <- network %>%
+            visLayout(randomSeed = 123) %>%
+            visPhysics(enabled = FALSE)
+    }
+    
+    return(network)
+}
+
+prepare_nodes <- function(nodes, color = "#97C2FC", size = 25) {
+    if (is.null(nodes) || nrow(nodes) == 0) {
+        # Return empty dataframe with correct structure for visNetwork
+        return(data.frame(
+            id = character(0),
+            label = character(0),
+            color = character(0),
+            size = numeric(0),
+            stringsAsFactors = FALSE
+        ))
+    }
+    
+    # Create a copy to avoid modifying the original
+    vis_nodes <- data.frame(
+        id = nodes$id,
+        label = nodes$label,
+        color = color,
+        size = size,
+        borderWidth = 2,
+        borderWidthSelected = 4,
+        font = list(color = "#000000", size = 12),
+        stringsAsFactors = FALSE
+    )
+    
+    # Use KEGG styling if available
+    if (!is.null(nodes$kegg_bgcolor)) {
+        for (i in seq_len(nrow(vis_nodes))) {
+            if (!is.na(nodes$kegg_bgcolor[i])) {
+                vis_nodes$color[i] <- nodes$kegg_bgcolor[i]
+            }
+            
+            # Set font color based on KEGG foreground color
+            if (!is.null(nodes$kegg_fgcolor) && !is.na(nodes$kegg_fgcolor[i])) {
+                vis_nodes$font[[i]] <- list(color = nodes$kegg_fgcolor[i], size = 11)
+            }
+            
+            # Set shape based on KEGG shape
+            if (!is.null(nodes$kegg_shape) && !is.na(nodes$kegg_shape[i])) {
+                kegg_shape <- nodes$kegg_shape[i]
+                vis_nodes$shape[i] <- switch(kegg_shape,
+                                           "rectangle" = "box",
+                                           "circle" = "circle", 
+                                           "roundrectangle" = "box",
+                                           "ellipse" = "ellipse",
+                                           "box"  # default
+                )
+            }
+            
+            # Set size based on KEGG dimensions
+            if (!is.null(nodes$kegg_width) && !is.na(nodes$kegg_width[i])) {
+                # Scale KEGG width to reasonable visNetwork size
+                kegg_width <- nodes$kegg_width[i]
+                vis_nodes$size[i] <- max(15, min(60, kegg_width * 0.6))
+            }
+        }
+    }
+    
+    # Add any additional columns from original nodes (like hgnc_symbol, kegg_id, etc.)
+    additional_cols <- setdiff(names(nodes), c("id", "label", "color", "size", "borderWidth", 
+                                              "borderWidthSelected", "font", "shape"))
+    for (col in additional_cols) {
+        vis_nodes[[col]] <- nodes[[col]]
+    }
+    
+    return(vis_nodes)
+}
+
+prepare_edges <- function(edges, color = "#848484", width = 2, dense_network = FALSE) {
+    if (is.null(edges) || nrow(edges) == 0) {
+        # Return empty dataframe with correct structure for visNetwork
+        return(data.frame(
+            from = character(0),
+            to = character(0),
+            color = character(0),
+            width = numeric(0),
+            arrows = character(0),
+            stringsAsFactors = FALSE
+        ))
+    }
+    
+    # Create simple edge styling to avoid list assignment issues
+    vis_edges <- data.frame(
+        from = edges$from,
+        to = edges$to,
+        color = color,
+        width = width,
+        arrows = "to",
+        stringsAsFactors = FALSE
+    )
+    
+    # Add opacity for dense networks
+    if (dense_network) {
+        vis_edges$color <- paste0(color, "CC")  # Add alpha transparency
+    }
+    
+    return(vis_edges)
+}
+
+apply_gene_annotations <- function(nodes, annotations, annotation_column, color_scheme = "viridis") {
+    # Try to match annotations to nodes based on multiple ID types
+    # First try HGNC symbols, then KEGG IDs, then original gene names
+    
+    # Get the first column of annotations (assumed to be gene identifiers)
+    annotation_genes <- annotations[[1]]
+    
+    # Try matching with HGNC symbols first
+    matched_annotations <- annotations[match(nodes$hgnc_symbol, annotation_genes), ]
+    
+    # For unmatched nodes, try KEGG IDs
+    unmatched <- is.na(matched_annotations[[1]])
+    if (any(unmatched)) {
+        kegg_matches <- annotations[match(nodes$kegg_id[unmatched], annotation_genes), ]
+        matched_annotations[unmatched, ] <- kegg_matches
+    }
+    
+    # For still unmatched nodes, try original gene names
+    still_unmatched <- is.na(matched_annotations[[1]])
+    if (any(still_unmatched)) {
+        gene_matches <- annotations[match(nodes$gene_name[still_unmatched], annotation_genes), ]
+        matched_annotations[still_unmatched, ] <- gene_matches
+    }
+    
+    # Get annotation values
+    annotation_values <- matched_annotations[[annotation_column]]
+    
+    # Create color scale
+    if (is.numeric(annotation_values)) {
+        # Continuous color scale
+        color_scale <- create_continuous_color_scale(annotation_values, color_scheme)
+    } else {
+        # Discrete color scale
+        color_scale <- create_discrete_color_scale(annotation_values, color_scheme)
+    }
+    
+    # Apply colors to nodes
+    nodes$color <- color_scale$colors
+    nodes$annotation_value <- annotation_values
+    
+    # Count successful matches
+    successful_matches <- sum(!is.na(annotation_values))
+    cat("Successfully matched", successful_matches, "out of", nrow(nodes), "nodes with annotations\n")
+    
+    return(list(
+        nodes = nodes,
+        color_scale = color_scale
+    ))
+}
+
+create_continuous_color_scale <- function(values, scheme = "viridis") {
+    # Remove NA values for scaling
+    clean_values <- values[!is.na(values)]
+    
+    if (length(clean_values) == 0) {
+        return(list(colors = rep("#97C2FC", length(values))))
+    }
+    
+    # Normalize values to 0-1 range
+    normalized <- (values - min(clean_values, na.rm = TRUE)) / 
+                  (max(clean_values, na.rm = TRUE) - min(clean_values, na.rm = TRUE))
+    
+    # Generate colors
+    colors <- switch(scheme,
+        "viridis" = viridisLite::viridis(100)[round(normalized * 99) + 1],
+        "plasma" = viridisLite::plasma(100)[round(normalized * 99) + 1],
+        "RdBu" = RColorBrewer::brewer.pal(11, "RdBu")[round(normalized * 10) + 1],
+        "RdYlBu" = RColorBrewer::brewer.pal(11, "RdYlBu")[round(normalized * 10) + 1],
+        "Spectral" = RColorBrewer::brewer.pal(11, "Spectral")[round(normalized * 10) + 1],
+        viridisLite::viridis(100)[round(normalized * 99) + 1]
+    )
+    
+    # Handle NA values
+    colors[is.na(values)] <- "#CCCCCC"
+    
+    return(list(
+        colors = colors,
+        scale_type = "continuous",
+        min_value = min(clean_values, na.rm = TRUE),
+        max_value = max(clean_values, na.rm = TRUE),
+        scheme = scheme
+    ))
+}
+
+create_discrete_color_scale <- function(values, scheme = "viridis") {
+    unique_values <- unique(values[!is.na(values)])
+    n_colors <- length(unique_values)
+    
+    if (n_colors == 0) {
+        return(list(colors = rep("#97C2FC", length(values))))
+    }
+    
+    # Generate colors
+    palette_colors <- switch(scheme,
+        "viridis" = viridisLite::viridis(n_colors),
+        "plasma" = viridisLite::plasma(n_colors),
+        "RdBu" = RColorBrewer::brewer.pal(min(n_colors, 11), "RdBu"),
+        "RdYlBu" = RColorBrewer::brewer.pal(min(n_colors, 11), "RdYlBu"),
+        "Spectral" = RColorBrewer::brewer.pal(min(n_colors, 11), "Spectral"),
+        viridisLite::viridis(n_colors)
+    )
+    
+    # Map values to colors
+    color_mapping <- setNames(palette_colors, unique_values)
+    colors <- color_mapping[values]
+    
+    # Handle NA values
+    colors[is.na(values)] <- "#CCCCCC"
+    
+    return(list(
+        colors = colors,
+        scale_type = "discrete",
+        mapping = color_mapping,
+        scheme = scheme
+    ))
+}
+
+create_color_legend <- function(color_scale, annotation_name) {
+    if (color_scale$scale_type == "continuous") {
+        # Create continuous legend
+        values <- seq(color_scale$min_value, color_scale$max_value, length.out = 100)
+        colors <- switch(color_scale$scheme,
+            "viridis" = viridisLite::viridis(100),
+            "plasma" = viridisLite::plasma(100),
+            "RdBu" = colorRampPalette(RColorBrewer::brewer.pal(11, "RdBu"))(100),
+            "RdYlBu" = colorRampPalette(RColorBrewer::brewer.pal(11, "RdYlBu"))(100),
+            "Spectral" = colorRampPalette(RColorBrewer::brewer.pal(11, "Spectral"))(100),
+            viridisLite::viridis(100)
+        )
+        
+        plot_ly(
+            x = values,
+            y = rep(1, length(values)),
+            type = "scatter",
+            mode = "markers",
+            marker = list(
+                color = colors,
+                size = 20,
+                line = list(width = 0)
+            ),
+            showlegend = FALSE
+        ) %>%
+            layout(
+                title = paste("Color Scale:", annotation_name),
+                xaxis = list(title = annotation_name),
+                yaxis = list(visible = FALSE),
+                margin = list(l = 50, r = 50, t = 50, b = 50)
+            )
+    } else {
+        # Create discrete legend
+        values <- names(color_scale$mapping)
+        colors <- as.character(color_scale$mapping)
+        
+        plot_ly(
+            x = values,
+            y = rep(1, length(values)),
+            type = "scatter",
+            mode = "markers",
+            marker = list(
+                color = colors,
+                size = 20,
+                line = list(width = 0)
+            ),
+            text = values,
+            showlegend = FALSE
+        ) %>%
+            layout(
+                title = paste("Color Scale:", annotation_name),
+                xaxis = list(title = annotation_name),
+                yaxis = list(visible = FALSE),
+                margin = list(l = 50, r = 50, t = 50, b = 50)
+            )
+    }
+}
