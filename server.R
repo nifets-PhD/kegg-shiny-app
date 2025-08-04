@@ -114,7 +114,7 @@ server <- function(input, output, session) {
         
         # For now, return all pathways - in a full implementation, 
         # you would query KEGG API to find pathways containing these genes
-        find_pathways_with_genes(genes, kegg_pathways)
+        find_pathways_with_genes(genes, values$pathways_list)
     })
     
     # Display uploaded genes table
@@ -364,6 +364,22 @@ server <- function(input, output, session) {
         filtered_pathways <- search_pathways(values$pathways_list, input$pathway_search)
         output$pathway_table <- DT::renderDataTable({
             filtered_pathways
+        }, selection = 'single', options = list(pageLength = 10))
+    })
+    
+    # Find pathways with uploaded genes
+    observeEvent(input$find_pathways_with_genes, {
+        genes <- uploaded_genes()
+        if (length(genes) == 0) {
+            showNotification("Please upload genes first", type = "warning")
+            return()
+        }
+        
+        showNotification("Searching for pathways containing your genes...", type = "message")
+        gene_pathways <- find_pathways_with_genes(genes, values$pathways_list)
+        
+        output$pathway_table <- DT::renderDataTable({
+            gene_pathways
         }, selection = 'single', options = list(pageLength = 10))
     })
     

@@ -279,14 +279,82 @@ search_pathways <- function(pathways_list, search_term) {
     return(pathways_list[matches, ])
 }
 
+#' Get genes in a specific KEGG pathway
+#' @param pathway_id KEGG pathway ID (e.g., "hsa04110")
+#' @return character vector of gene symbols found in the pathway
+get_pathway_genes <- function(pathway_id) {
+    tryCatch({
+        # Clean pathway ID
+        pathway_id <- gsub("^path:", "", pathway_id)
+        
+        # Use KEGGREST to get pathway gene list
+        if (requireNamespace("KEGGREST", quietly = TRUE)) {
+            # Get genes associated with this pathway
+            pathway_genes <- KEGGREST::keggGet(pathway_id)
+            
+            if (length(pathway_genes) > 0 && !is.null(pathway_genes[[1]]$GENE)) {
+                # Extract gene information
+                gene_info <- pathway_genes[[1]]$GENE
+                
+                # Gene info comes as named vector where names are KEGG IDs and values are "Symbol Description"
+                gene_symbols <- c()
+                
+                if (is.character(gene_info)) {
+                    # Parse gene symbols from the descriptions
+                    for (gene_entry in gene_info) {
+                        # Split by semicolon and take first part, then extract first word
+                        gene_parts <- unlist(strsplit(gene_entry, ";"))
+                        if (length(gene_parts) > 0) {
+                            # Extract the gene symbol (first word before any description)
+                            symbol_part <- trimws(gene_parts[1])
+                            gene_symbol <- unlist(strsplit(symbol_part, "\\s+"))[1]
+                            if (!is.na(gene_symbol) && gene_symbol != "") {
+                                gene_symbols <- c(gene_symbols, gene_symbol)
+                            }
+                        }
+                    }
+                } else if (is.vector(gene_info) && !is.null(names(gene_info))) {
+                    # Alternative format: named vector where names are KEGG IDs
+                    for (gene_entry in gene_info) {
+                        # Extract gene symbol (first word before any description)
+                        gene_symbol <- unlist(strsplit(trimws(gene_entry), "\\s+"))[1]
+                        if (!is.na(gene_symbol) && gene_symbol != "") {
+                            gene_symbols <- c(gene_symbols, gene_symbol)
+                        }
+                    }
+                }
+                
+                return(unique(toupper(gene_symbols)))
+            }
+        } else {
+            # Fallback: try to extract from pathway names (previous method)
+            cat("KEGGREST not available, using basic search for", pathway_id, "\n")
+            return(character(0))
+        }
+        
+        return(character(0))
+        
+    }, error = function(e) {
+        cat("Error getting genes for pathway", pathway_id, ":", e$message, "\n")
+        return(character(0))
+    })
+}
+
 filter_pathways_by_category <- function(pathways_list, category) {
     if (is.null(pathways_list)) {
         return(NULL)
     }
     
-    # Filter pathways based on category prefix
-    category_matches <- grepl(paste0("^hsa", category), pathways_list$pathway_id)
-    return(pathways_list[category_matches, ])
+    # Extract the first 2 digits from category for prefix matching
+    category_prefix <- substr(category, 1, 2)
+    
+    # Filter pathways based on category prefix (e.g., "01" for metabolism)
+    category_matches <- grepl(paste0("^hsa", category_prefix), pathways_list$pathway_id)
+    
+    result <- pathways_list[category_matches, ]
+    cat("Category", category, "(prefix", category_prefix, ") matches:", nrow(result), "pathways\n")
+    
+    return(result)
 }
 
 load_kegg_pathway <- function(pathway_id) {
@@ -1374,21 +1442,130 @@ find_pathways_with_genes <- function(gene_symbols, pathways_list) {
     
     cat("Searching for pathways containing", length(gene_symbols), "genes...\n")
     
-    # Initialize results
-    pathway_results <- data.frame()
-    
-    # Check each pathway (this is a simplified version - in practice you'd query KEGG API)
-    # For now, we'll return all pathways and add gene overlap info when pathways are loaded
+    # Initialize results with gene overlap information
     pathway_results <- pathways_list
-    pathway_results$genes_of_interest <- NA
+    pathway_results$genes_found <- ""
     pathway_results$gene_count <- 0
-    
-    # Add a priority score (pathways with more relevant genes get higher priority)
-    # This is a placeholder - in a full implementation, you'd actually check each pathway
     pathway_results$priority_score <- 0
     
-    cat("Found", nrow(pathway_results), "pathways to check\n")
-    return(pathway_results)
+    # Convert gene symbols to uppercase for matching
+    gene_symbols_upper <- toupper(gene_symbols)
+    
+    # Limit search to prevent server overload (search first 50 pathways)
+    max_pathways_to_search <- min(50, nrow(pathway_results))
+    cat("Limiting search to first", max_pathways_to_search, "pathways to avoid server overload\n")
+    
+    # Send initial progress notification
+    if (exists("showNotification", mode = "function")) {
+        showNotification(
+            paste("Starting gene search across", max_pathways_to_search, "pathways..."),
+            type = "message",
+            duration = 3
+        )
+    }
+    
+    # Progress counter
+    successful_queries <- 0
+    matches_found <- 0
+    
+    # Query each pathway for its actual gene content
+    for (i in seq_len(max_pathways_to_search)) {
+        # Progress update every 10 pathways
+        if (i %% 10 == 0) {  
+            cat("Processing pathway", i, "of", max_pathways_to_search, "...\n")
+            
+            # Send progress notification to UI
+            if (exists("showNotification", mode = "function")) {
+                progress_msg <- paste("Processed", i, "of", max_pathways_to_search, "pathways.", 
+                                    "Found", matches_found, "matches so far...")
+                showNotification(progress_msg, type = "message", duration = 2)
+            }
+        }
+        
+        pathway_id <- pathway_results$pathway_id[i]
+        pathway_name <- pathway_results$pathway_name[i]
+        
+        # Get genes in this pathway from KEGG
+        pathway_genes <- get_pathway_genes(pathway_id)
+        
+        if (length(pathway_genes) > 0) {
+            successful_queries <- successful_queries + 1
+            
+            # Find intersection between user genes and pathway genes
+            matched_genes <- intersect(gene_symbols_upper, pathway_genes)
+            
+            if (length(matched_genes) > 0) {
+                matches_found <- matches_found + 1
+                pathway_results$genes_found[i] <- paste(matched_genes, collapse = ", ")
+                pathway_results$gene_count[i] <- length(matched_genes)
+                pathway_results$priority_score[i] <- length(matched_genes)
+                
+                cat("  ✓ Found", length(matched_genes), "matching genes in", pathway_name, "\n")
+                
+                # Notify about significant matches
+                if (length(matched_genes) >= 2) {
+                    if (exists("showNotification", mode = "function")) {
+                        showNotification(
+                            paste("Great match!", length(matched_genes), "genes found in", pathway_name),
+                            type = "message",
+                            duration = 3
+                        )
+                    }
+                }
+            }
+        }
+        
+        # Small delay to avoid overwhelming KEGG servers
+        Sys.sleep(0.2)
+        
+        # Break early if we find some good results to speed up response
+        if (successful_queries >= 20 && matches_found >= 5) {
+            cat("Found enough results, stopping early to improve speed\n")
+            if (exists("showNotification", mode = "function")) {
+                showNotification("Found enough good matches, finishing search early!", type = "message", duration = 3)
+            }
+            break
+        }
+    }
+    
+    # Final progress notification
+    if (exists("showNotification", mode = "function")) {
+        showNotification(
+            paste("Search complete! Found", matches_found, "pathways with your genes."),
+            type = if (matches_found > 0) "message" else "warning",
+            duration = 5
+        )
+    }
+    
+    # Sort by priority score (pathways with more matching genes first)
+    pathway_results <- pathway_results[order(-pathway_results$priority_score, pathway_results$pathway_name), ]
+    
+    # Filter to only show pathways with at least one matching gene
+    relevant_pathways <- pathway_results[pathway_results$gene_count > 0, ]
+    
+    if (nrow(relevant_pathways) == 0) {
+        cat("No pathways found containing your genes.\n")
+        cat("This could mean:\n")
+        cat("1. Gene symbols don't match KEGG database (try different gene names)\n")
+        cat("2. Genes are not in any human pathways\n") 
+        cat("3. Network connectivity issues with KEGG server\n")
+        
+        # Return a helpful message instead of empty results
+        return(data.frame(
+            pathway_id = "no_results",
+            pathway_name = paste("No pathways found containing:", paste(gene_symbols[1:min(3, length(gene_symbols))], collapse = ", ")),
+            description = "Try: 1) Check gene symbols are correct (e.g., TP53, BRCA1), 2) Use official HGNC symbols, 3) Try category search instead",
+            genes_found = "",
+            gene_count = 0,
+            priority_score = 0,
+            stringsAsFactors = FALSE
+        ))
+    }
+    
+    cat("Found", nrow(relevant_pathways), "pathways containing your genes\n")
+    cat("Top matches:", paste(head(relevant_pathways$pathway_name, 3), collapse = ", "), "\n")
+    
+    return(relevant_pathways)
 }
 
 #' Apply gene highlighting to nodes

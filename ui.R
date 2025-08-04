@@ -73,9 +73,7 @@ ui <- dashboardPage(
                                                "Metabolism" = "01100",
                                                "Genetic Information Processing" = "03000", 
                                                "Environmental Information Processing" = "04000",
-                                               "Cellular Processes" = "05000",
-                                               "Organismal Systems" = "06000",
-                                               "Human Diseases" = "07000"
+                                               "Cellular Processes" = "05000"
                                            ),
                                            selected = "01100"),
                                 br(),
