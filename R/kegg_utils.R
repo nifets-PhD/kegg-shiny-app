@@ -263,10 +263,6 @@ get_kegg_pathways <- function() {
         # Add descriptions (use the pathway name)
         pathway_df$description <- pathway_df$pathway_name
         
-        # Debug: print first few rows
-        cat("First few pathways loaded:\n")
-        print(head(pathway_df, 3))
-        
         return(pathway_df)
         
     }, error = function(e) {
@@ -295,9 +291,6 @@ filter_pathways_by_category <- function(pathways_list, category) {
 
 load_kegg_pathway <- function(pathway_id) {
     tryCatch({
-        # Debug print
-        cat("Original pathway_id:", pathway_id, "\n")
-        
         # Clean pathway ID
         pathway_id <- gsub("^path:", "", pathway_id)
         
@@ -310,8 +303,6 @@ load_kegg_pathway <- function(pathway_id) {
         if (!grepl("^hsa\\d+", pathway_id)) {
             stop(paste("Invalid pathway ID format:", pathway_id))
         }
-        
-        cat("Cleaned pathway_id:", pathway_id, "\n")
         
         # Create cache directory if it doesn't exist
         cache_dir <- "kegg_cache"
@@ -699,7 +690,7 @@ extract_edges_from_graph <- function(graph) {
 }
 
 # Simplified KEGG-specific network visualization
-create_kegg_network_visualization <- function(nodes, edges, show_labels = TRUE, show_edges = TRUE, coloring_mode = "kegg_default") {
+create_kegg_network_visualization <- function(nodes, edges, show_labels = TRUE, show_edges = TRUE, coloring_mode = "kegg_default", highlight_genes = NULL) {
     
     # Validate inputs
     if (is.null(nodes) || nrow(nodes) == 0) {
@@ -733,8 +724,13 @@ create_kegg_network_visualization <- function(nodes, edges, show_labels = TRUE, 
         })
     }
     
+    # Apply gene highlighting if requested - do this AFTER KEGG styling to override colors
+    if (!is.null(highlight_genes) && length(highlight_genes) > 0) {
+        nodes <- apply_gene_highlighting(nodes, highlight_genes)
+    }
+    
     # Prepare nodes with KEGG styling
-    vis_nodes <- prepare_kegg_nodes(nodes, show_labels)
+    vis_nodes <- prepare_kegg_nodes(nodes, show_labels, NULL)  # Don't pass highlight_genes again
     vis_edges <- prepare_kegg_edges(edges, show_edges)
     
 
@@ -777,7 +773,6 @@ create_kegg_network_visualization <- function(nodes, edges, show_labels = TRUE, 
         # cat("KEGG coordinates - X: [", coord_range_x[1], "-", coord_range_x[2], 
         #     "] Y: [", coord_range_y[1], "-", coord_range_y[2], "]\n")
     } else {
-        cat("No KEGG coordinates available\n")
         network <- network %>%
             visPhysics(enabled = FALSE) %>%
             visLayout(randomSeed = 123)
@@ -787,7 +782,7 @@ create_kegg_network_visualization <- function(nodes, edges, show_labels = TRUE, 
 }
 
 # Prepare nodes with authentic KEGG styling
-prepare_kegg_nodes <- function(nodes, show_labels = TRUE) {
+prepare_kegg_nodes <- function(nodes, show_labels = TRUE, highlight_genes = NULL) {
     if (is.null(nodes) || nrow(nodes) == 0) {
         return(data.frame(
             id = character(0),
@@ -810,6 +805,7 @@ prepare_kegg_nodes <- function(nodes, show_labels = TRUE) {
         shape = "box",      # Default KEGG shape
         borderWidth = 1,
         borderWidthSelected = 2,
+        hgnc_symbol = if(!is.null(nodes$hgnc_symbol)) nodes$hgnc_symbol else nodes$label,
         stringsAsFactors = FALSE
     )
     
@@ -838,7 +834,12 @@ prepare_kegg_nodes <- function(nodes, show_labels = TRUE) {
         if (!is.null(nodes$color.background) && !is.na(nodes$color.background[i])) {
             vis_nodes$color[i] <- nodes$color.background[i]
         } 
-        # Apply KEGG background color if no phylostratum color
+        # Apply direct color property (for gene highlighting)
+        else if (!is.null(nodes$color) && !is.na(nodes$color[i]) && 
+                 is.character(nodes$color) && nchar(nodes$color[i]) > 0) {
+            vis_nodes$color[i] <- nodes$color[i]
+        }
+        # Apply KEGG background color if no other color is set
         else if (!is.null(nodes$kegg_bgcolor) && !is.na(nodes$kegg_bgcolor[i])) {
             vis_nodes$color[i] <- nodes$kegg_bgcolor[i]
         }
@@ -875,6 +876,11 @@ prepare_kegg_nodes <- function(nodes, show_labels = TRUE) {
                 vis_nodes$font[[i]]$size <- 10  # Smaller size for KEGG foreground color
             }
         }
+    }
+    
+    # Apply gene highlighting if requested
+    if (!is.null(highlight_genes) && length(highlight_genes) > 0) {
+        vis_nodes <- apply_gene_highlighting(vis_nodes, highlight_genes)
     }
     
     return(vis_nodes)
@@ -1276,4 +1282,224 @@ generate_phylostratum_legend <- function() {
   )
   
   return(legend_df)
+}
+
+#' Parse gene list from text input
+#' @param gene_text character string with gene symbols separated by newlines
+#' @details Gene symbols MUST be separated by newlines (one gene per line).
+#'   Commas, semicolons, or other separators are NOT supported and will be 
+#'   treated as part of the gene name. Each line should contain exactly one gene symbol.
+#' @return character vector of cleaned gene symbols
+parse_gene_text <- function(gene_text) {
+    if (is.null(gene_text) || gene_text == "") {
+        return(character(0))
+    }
+    
+    # Check for common separator mistakes and warn user
+    if (grepl(",", gene_text) || grepl(";", gene_text) || grepl("\\t", gene_text)) {
+        # DEBUG: Show exactly what was found
+        found_chars <- c()
+        if (grepl(",", gene_text)) found_chars <- c(found_chars, "comma")
+        if (grepl(";", gene_text)) found_chars <- c(found_chars, "semicolon") 
+        if (grepl("\\t", gene_text)) found_chars <- c(found_chars, "tab")
+        
+        warning_msg <- paste0("PARSING ERROR: Gene symbols must be separated by newlines only! Found ", 
+                             paste(found_chars, collapse=", "), " in input. Please use one gene per line.")
+        warning(warning_msg)
+    }
+    
+    # Split by newlines ONLY - this enforces the newline-separated format
+    lines <- unlist(strsplit(gene_text, "[\n\r]+"))
+    
+    # Clean up - remove empty strings and whitespace
+    lines <- trimws(lines)
+    lines <- lines[lines != ""]
+    
+    # Convert to uppercase for consistency
+    genes <- toupper(lines)
+    
+    return(unique(genes))
+}
+
+#' Load gene list from file
+#' @param file_path path to file containing gene symbols
+#' @return character vector of gene symbols
+load_gene_file <- function(file_path) {
+    tryCatch({
+        # Check if file exists
+        if (!file.exists(file_path)) {
+            stop("File does not exist: ", file_path)
+        }
+        
+        # Determine file type
+        ext <- tools::file_ext(file_path)
+        
+        if (ext %in% c("txt", "tsv")) {
+            # Read as plain text
+            lines <- readLines(file_path, warn = FALSE)
+            
+            # Clean up lines directly (same logic as parse_gene_text but without comma warning)
+            lines <- trimws(lines)
+            lines <- lines[lines != ""]
+            
+            genes <- toupper(lines)
+            return(unique(genes))
+        } else if (ext == "csv") {
+            # Read as CSV and take first column
+            data <- read.csv(file_path, stringsAsFactors = FALSE, header = FALSE)
+            genes <- as.character(data[, 1])
+            # Clean up genes directly (same logic as parse_gene_text but without comma warning)
+            genes <- trimws(genes)
+            genes <- genes[genes != ""]
+            genes <- toupper(genes)
+            return(unique(genes))
+        } else {
+            warning("Unsupported file type: ", ext)
+            return(character(0))
+        }
+    }, error = function(e) {
+        warning("Error reading gene file: ", e$message)
+        return(character(0))
+    })
+}
+
+#' Find pathways containing specific genes
+#' @param gene_symbols character vector of HGNC gene symbols
+#' @param pathways_list data.frame of pathway information
+#' @return data.frame of pathways with gene overlap information
+find_pathways_with_genes <- function(gene_symbols, pathways_list) {
+    if (length(gene_symbols) == 0 || is.null(pathways_list)) {
+        return(data.frame())
+    }
+    
+    cat("Searching for pathways containing", length(gene_symbols), "genes...\n")
+    
+    # Initialize results
+    pathway_results <- data.frame()
+    
+    # Check each pathway (this is a simplified version - in practice you'd query KEGG API)
+    # For now, we'll return all pathways and add gene overlap info when pathways are loaded
+    pathway_results <- pathways_list
+    pathway_results$genes_of_interest <- NA
+    pathway_results$gene_count <- 0
+    
+    # Add a priority score (pathways with more relevant genes get higher priority)
+    # This is a placeholder - in a full implementation, you'd actually check each pathway
+    pathway_results$priority_score <- 0
+    
+    cat("Found", nrow(pathway_results), "pathways to check\n")
+    return(pathway_results)
+}
+
+#' Apply gene highlighting to nodes
+#' @param nodes data.frame with node information
+#' @param highlight_genes character vector of gene symbols to highlight
+#' @return nodes data.frame with highlighting applied
+apply_gene_highlighting <- function(nodes, highlight_genes) {
+    if (length(highlight_genes) == 0) {
+        return(nodes)
+    }
+    
+    # Convert highlight genes to uppercase for matching
+    highlight_genes <- toupper(highlight_genes)
+    
+    # Check which nodes match the genes of interest
+    # Only highlight nodes that are actually genes (not compounds or other types)
+    nodes$is_highlighted <- FALSE
+    
+    # Only consider nodes that are genes (check type column if it exists)
+    is_gene_node <- rep(TRUE, nrow(nodes))  # Default: assume all are genes
+    if (!is.null(nodes$type)) {
+        is_gene_node <- nodes$type == "gene" | is.na(nodes$type)
+    }
+    
+    # Match genes only among gene nodes
+    if (!is.null(nodes$hgnc_symbol)) {
+        hgnc_matches <- is_gene_node & (toupper(nodes$hgnc_symbol) %in% highlight_genes)
+        nodes$is_highlighted <- nodes$is_highlighted | hgnc_matches
+    }
+    
+    # Also check labels (in case HGNC symbols aren't available) - but only for gene nodes
+    if (!is.null(nodes$label)) {
+        label_matches <- is_gene_node & (toupper(nodes$label) %in% highlight_genes)
+        nodes$is_highlighted <- nodes$is_highlighted | label_matches
+    }
+    
+    # Apply highlighting colors - only modify highlighted nodes
+    # For highlighted nodes, set red color
+    nodes$color[nodes$is_highlighted] <- "#FF6B6B"  # Bright red for highlighted genes
+    
+    # Set borders for highlighted nodes
+    nodes$color.border[nodes$is_highlighted] <- "#FF0000"  # Red border for highlighted genes
+    
+    # Make highlighted genes larger
+    if (!is.null(nodes$size)) {
+        nodes$size[nodes$is_highlighted] <- 35
+    }
+    
+    # Set font colors for highlighted nodes only
+    nodes$font.color[nodes$is_highlighted] <- "#FFFFFF"
+    
+    # Add tooltip information
+    highlighted_count <- sum(nodes$is_highlighted)
+    nodes$title <- ifelse(
+        nodes$is_highlighted,
+        paste0(nodes$label, "\n⭐ GENE OF INTEREST ⭐\n", 
+               "One of ", highlighted_count, " genes you're tracking"),
+        if (!is.null(nodes$title)) nodes$title else nodes$label
+    )
+    
+    cat("Applied highlighting to", highlighted_count, "out of", nrow(nodes), "nodes\n")
+    
+    return(nodes)
+}
+
+#' Parse KEGG pathway and fetch HSA gene data
+#' @param pathway_id KEGG pathway ID (e.g., "hsa04152")
+#' @param use_cached logical, whether to use cached KEGG data
+#' @param fetch_hsa_data logical, whether to fetch HSA gene data
+#' @return list containing nodes, edges, and HSA gene data
+parse_kegg_pathway_with_hsa <- function(pathway_id, use_cached = TRUE, fetch_hsa_data = TRUE) {
+    cat("Loading KEGG pathway", pathway_id, "with HSA gene data...\n")
+    
+    # Load KEGG pathway data
+    kegg_result <- load_kegg_pathway(pathway_id)
+    
+    if (is.null(kegg_result$nodes) || nrow(kegg_result$nodes) == 0) {
+        cat("No pathway data loaded\n")
+        return(list(nodes = data.frame(), edges = data.frame(), hsa_data = data.frame()))
+    }
+    
+    # The kegg_data should be the parsed XML from load_kegg_pathway
+    kegg_data <- kegg_result$graph  # Try using 'graph' instead of 'kegg_data'
+    
+    # Initialize HSA data
+    hsa_data <- data.frame()
+    
+    # Fetch HSA gene data if requested
+    if (fetch_hsa_data && !is.null(kegg_data)) {
+        tryCatch({
+            # Source HSA utilities
+            source("R/hsa_utils.R")
+            
+            # Create cache directory
+            hsa_cache_dir <- create_hsa_cache()
+            
+            # Get HSA data for this pathway
+            hsa_data <- get_pathway_hsa_data(kegg_data, hsa_cache_dir)
+            
+            cat("Successfully loaded HSA data for", nrow(hsa_data), "genes\n")
+            
+        }, error = function(e) {
+            cat("Error fetching HSA data:", e$message, "\n")
+            hsa_data <- data.frame()
+        })
+    }
+    
+    return(list(
+        nodes = kegg_result$nodes,
+        edges = kegg_result$edges,
+        kegg_data = kegg_data,
+        hsa_data = hsa_data
+    ))
 }

@@ -38,3 +38,4 @@ if (!requireNamespace("myTAI", quietly = TRUE)) {
 # Source utility functions
 source("R/kegg_utils.R")
 source("R/network_utils.R")
+source("R/sequence_utils.R")
