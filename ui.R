@@ -78,20 +78,51 @@ ui <- dashboardPage(
                 fluidRow(
                     box(
                         title = "Pathway Network", status = "success", solidHeader = TRUE,
-                        width = 12, collapsible = TRUE,
+                        width = 8, collapsible = TRUE,
                         
                         visNetworkOutput("pathway_network", height = "700px")
+                    ),
+                    
+                    box(
+                        title = "Network Options", status = "primary", solidHeader = TRUE,
+                        width = 4, collapsible = TRUE,
+                        
+                        h5("Node Coloring"),
+                        radioButtons("node_coloring", "Color nodes by:",
+                                   choices = list(
+                                       "KEGG Default" = "kegg_default",
+                                       "Phylostratum" = "phylostratum"
+                                   ),
+                                   selected = "kegg_default"),
+                        
+                        conditionalPanel(
+                            condition = "input.node_coloring == 'phylostratum'",
+                            helpText("Colors nodes by evolutionary age (phylostratum)."),
+                            br()
+                        ),
+                        
+                        # Phylostratum Legend
+                        conditionalPanel(
+                            condition = "input.node_coloring == 'phylostratum'",
+                            hr(),
+                            h5("Phylostratum Legend"),
+                            div(style = "max-height: 400px; overflow-y: auto;",
+                                DT::dataTableOutput("phylostratum_legend_table")
+                            )
+                        )
                     )
                 ),
                 
                 fluidRow(
                     box(
                         title = "Edge Legend", status = "warning", solidHeader = TRUE,
-                        width = 6, collapsible = TRUE,
+                        width = 6, collapsible = TRUE, height = "500px",
                         
                         h5("Relationship Types"),
                         p("Different colors and styles represent different biological relationships:"),
-                        DT::dataTableOutput("edge_legend_table", height = "200px")
+                        div(style = "max-height: 400px; overflow-y: auto;",
+                            DT::dataTableOutput("edge_legend_table")
+                        )
                     ),
                     
                     box(

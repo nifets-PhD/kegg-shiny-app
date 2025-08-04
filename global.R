@@ -28,6 +28,13 @@ if (!requireNamespace("xml2", quietly = TRUE)) {
 }
 library(xml2)
 
+# Install myTAI for phylostratum coloring (optional)
+if (!requireNamespace("myTAI", quietly = TRUE)) {
+    message("myTAI package not found. Installing for phylostratum coloring...")
+    install.packages("myTAI")
+}
+# Note: myTAI is loaded conditionally in the phylostratum functions
+
 # Source utility functions
 source("R/kegg_utils.R")
 source("R/network_utils.R")

@@ -699,7 +699,7 @@ extract_edges_from_graph <- function(graph) {
 }
 
 # Simplified KEGG-specific network visualization
-create_kegg_network_visualization <- function(nodes, edges, show_labels = TRUE, show_edges = TRUE) {
+create_kegg_network_visualization <- function(nodes, edges, show_labels = TRUE, show_edges = TRUE, coloring_mode = "kegg_default") {
     
     # Validate inputs
     if (is.null(nodes) || nrow(nodes) == 0) {
@@ -723,6 +723,16 @@ create_kegg_network_visualization <- function(nodes, edges, show_labels = TRUE, 
         )
     }
     
+    # Apply phylostratum coloring if requested
+    if (coloring_mode == "phylostratum") {
+        tryCatch({
+            nodes <- apply_phylostratum_coloring(nodes)
+        }, error = function(e) {
+            warning("Failed to apply phylostratum coloring: ", e$message)
+            cat("Using default KEGG coloring instead\n")
+        })
+    }
+    
     # Prepare nodes with KEGG styling
     vis_nodes <- prepare_kegg_nodes(nodes, show_labels)
     vis_edges <- prepare_kegg_edges(edges, show_edges)
@@ -731,6 +741,11 @@ create_kegg_network_visualization <- function(nodes, edges, show_labels = TRUE, 
     
         # Create network with KEGG layout
     network <- visNetwork(vis_nodes, vis_edges) %>%
+        visNodes(
+            font = list(size = 11, strokeWidth = 0),  # Remove text stroke that might interfere
+            borderWidth = 1,
+            shadow = FALSE  # Disable shadows that might affect text rendering
+        ) %>%
         visInteraction(
             navigationButtons = TRUE, 
             hover = TRUE,
@@ -795,9 +810,11 @@ prepare_kegg_nodes <- function(nodes, show_labels = TRUE) {
         shape = "box",      # Default KEGG shape
         borderWidth = 1,
         borderWidthSelected = 2,
-        font = list(color = "#000000", size = 11),
         stringsAsFactors = FALSE
     )
+    
+    # Initialize font as a list column - each row gets a named list
+    vis_nodes$font <- replicate(nrow(vis_nodes), list(color = "#000000", size = 11, face = "arial"), simplify = FALSE)
     
     # Apply KEGG coordinates if available
     if (!is.null(nodes$x) && !is.null(nodes$y)) {
@@ -805,11 +822,30 @@ prepare_kegg_nodes <- function(nodes, show_labels = TRUE) {
         vis_nodes$y <- nodes$y
     }
     
+    # Add title (tooltip) if available
+    if (!is.null(nodes$title)) {
+        vis_nodes$title <- nodes$title
+    }
+    
     # Apply KEGG styling if available
     for (i in seq_len(nrow(vis_nodes))) {
-        # Apply KEGG background color
-        if (!is.null(nodes$kegg_bgcolor) && !is.na(nodes$kegg_bgcolor[i])) {
+        # Set font color if specified (from phylostratum coloring)
+        if (!is.null(nodes$font.color) && !is.na(nodes$font.color[i])) {
+            vis_nodes$font[[i]]$color <- nodes$font.color[i]
+        }
+        
+        # Apply phylostratum color first (highest priority)
+        if (!is.null(nodes$color.background) && !is.na(nodes$color.background[i])) {
+            vis_nodes$color[i] <- nodes$color.background[i]
+        } 
+        # Apply KEGG background color if no phylostratum color
+        else if (!is.null(nodes$kegg_bgcolor) && !is.na(nodes$kegg_bgcolor[i])) {
             vis_nodes$color[i] <- nodes$kegg_bgcolor[i]
+        }
+        
+        # Apply border width if border color is specified (but keep color simple)
+        if (!is.null(nodes$color.border) && !is.na(nodes$color.border[i])) {
+            vis_nodes$borderWidth[i] <- 2
         }
         
         # Apply KEGG shape
@@ -831,9 +867,13 @@ prepare_kegg_nodes <- function(nodes, show_labels = TRUE) {
             vis_nodes$size[i] <- max(20, min(50, kegg_width * 0.8))
         }
         
-        # Set font color
+        # Set font color and size from KEGG foreground color (only if no phylostratum color is set)
         if (!is.null(nodes$kegg_fgcolor) && !is.na(nodes$kegg_fgcolor[i])) {
-            vis_nodes$font[[i]] <- list(color = nodes$kegg_fgcolor[i], size = 10)
+            # Only apply KEGG foreground color if phylostratum coloring hasn't set a font color
+            if (is.null(nodes$font.color) || is.na(nodes$font.color[i])) {
+                vis_nodes$font[[i]]$color <- nodes$kegg_fgcolor[i]
+                vis_nodes$font[[i]]$size <- 10  # Smaller size for KEGG foreground color
+            }
         }
     }
     
@@ -1084,4 +1124,156 @@ create_edge_legend <- function(edges) {
     } else {
         return(NULL)
     }
+}
+
+#' Load phylostratum mapping data
+#' @return data.frame with GeneID and Stratum columns
+load_phylomap <- function() {
+    phylomap_path <- file.path("data", "phylomap_hgnc.tsv")
+    if (!file.exists(phylomap_path)) {
+        stop("Phylomap file not found: ", phylomap_path)
+    }
+    
+    phylomap <- read.table(phylomap_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+    return(phylomap)
+}
+
+#' Map gene symbols to phylostrata
+#' @param gene_symbols character vector of gene symbols
+#' @param phylomap data.frame with GeneID and Stratum columns
+#' @return named vector of strata (names are gene symbols)
+map_genes_to_phylostrata <- function(gene_symbols, phylomap) {
+    # Create a mapping from gene symbols to strata
+    strata_map <- setNames(phylomap$Stratum, phylomap$GeneID)
+    
+    # Map the gene symbols
+    gene_strata <- strata_map[gene_symbols]
+    names(gene_strata) <- gene_symbols
+    
+    return(gene_strata)
+}
+
+#' Apply phylostratum coloring to nodes
+#' @param nodes data.frame with node information
+#' @param phylomap data.frame with phylostratum mapping
+#' @return nodes data.frame with phylostratum colors applied
+apply_phylostratum_coloring <- function(nodes, phylomap = NULL) {
+    if (is.null(phylomap)) {
+        phylomap <- load_phylomap()
+    }
+    
+    # Check if myTAI is available
+    if (!requireNamespace("myTAI", quietly = TRUE)) {
+        stop("myTAI package is required for phylostratum coloring. Please install it with: install.packages('myTAI')")
+    }
+    
+    # Extract gene symbols from node labels
+    gene_symbols <- nodes$label
+    
+    # Map genes to phylostrata
+    gene_strata <- map_genes_to_phylostrata(gene_symbols, phylomap)
+    
+    # Get unique strata present in the data
+    unique_strata <- unique(gene_strata[!is.na(gene_strata)])
+    
+    if (length(unique_strata) == 0) {
+        warning("No phylostratum matches found for genes")
+        return(nodes)
+    }
+    
+    # Get colors using myTAI PS_colours function
+    all_colors <- myTAI::PS_colours(max(unique_strata, na.rm = TRUE))
+    
+    # Create color mapping
+    color_map <- setNames(all_colors[unique_strata], unique_strata)
+    
+    # Apply colors to nodes
+    nodes$color.background <- ifelse(
+        is.na(gene_strata), 
+        "#D3D3D3",  # Gray for unmapped genes
+        color_map[as.character(gene_strata)]
+    )
+    
+    # Set border color
+    nodes$color.border <- "#666666"
+    
+    # Set text color based on background brightness
+    nodes$font.color <- ifelse(
+        is.na(gene_strata),
+        "#000000",  # Black text for gray
+        sapply(color_map[as.character(gene_strata)], function(color) {
+            if (is.na(color)) return("#000000")
+            # Convert hex to RGB and calculate brightness
+            rgb_vals <- col2rgb(color)
+            brightness <- (rgb_vals[1] * 0.299 + rgb_vals[2] * 0.587 + rgb_vals[3] * 0.114) / 255
+            if (brightness < 0.5) "#FFFFFF" else "#000000"  # White text for dark colors
+        })
+    )
+    
+    # Add stratum information to title for tooltip
+    legend_data <- load_phylostratum_legend()
+    if (!is.null(legend_data)) {
+        # Create a mapping from rank to name
+        rank_to_name <- setNames(legend_data$Name, legend_data$Rank)
+        
+        nodes$title <- ifelse(
+            is.na(gene_strata),
+            paste0(nodes$label, "\nPhylostratum: Unknown"),
+            paste0(nodes$label, "\nPhylostratum ", gene_strata, ": ", 
+                   rank_to_name[as.character(gene_strata)])
+        )
+    } else {
+        nodes$title <- ifelse(
+            is.na(gene_strata),
+            paste0(nodes$label, "\nPhylostratum: Unknown"),
+            paste0(nodes$label, "\nPhylostratum: ", gene_strata)
+        )
+    }
+    
+    cat("Applied phylostratum coloring to", sum(!is.na(gene_strata)), "out of", length(gene_strata), "genes\n")
+    cat("Strata represented:", paste(sort(unique_strata), collapse = ", "), "\n")
+    
+    return(nodes)
+}
+
+# Load phylostratum legend data
+load_phylostratum_legend <- function() {
+  legend_file <- file.path("data", "strata_legend.tsv")
+  if (!file.exists(legend_file)) {
+    warning("Phylostratum legend file not found: ", legend_file)
+    return(NULL)
+  }
+  
+  legend_data <- read.table(legend_file, header = TRUE, sep = "\t", 
+                           stringsAsFactors = FALSE, quote = '"')
+  return(legend_data)
+}
+
+# Generate phylostratum legend with colors and names
+generate_phylostratum_legend <- function() {
+  # Load legend data
+  legend_data <- load_phylostratum_legend()
+  if (is.null(legend_data)) {
+    return(NULL)
+  }
+  
+  # Get colors from myTAI
+  if (!requireNamespace("myTAI", quietly = TRUE)) {
+    warning("myTAI package required for phylostratum coloring")
+    return(NULL)
+  }
+  
+  # Get unique strata (1 to max rank)
+  max_stratum <- max(legend_data$Rank)
+  all_colors <- myTAI::PS_colours(max_stratum)
+  
+  # Create legend data frame
+  legend_df <- data.frame(
+    Rank = legend_data$Rank,
+    Name = legend_data$Name,
+    Color = all_colors[legend_data$Rank],
+    stringsAsFactors = FALSE
+  )
+  
+  return(legend_df)
 }

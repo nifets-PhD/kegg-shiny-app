@@ -113,7 +113,8 @@ server <- function(input, output, session) {
             values$nodes, 
             values$edges,
             show_labels = TRUE,
-            show_edges = TRUE
+            show_edges = TRUE,
+            coloring_mode = ifelse(is.null(input$node_coloring), "kegg_default", input$node_coloring)
         )
     })
     
@@ -138,12 +139,18 @@ server <- function(input, output, session) {
             )
         }
     }, options = list(
-        pageLength = 10,
+        pageLength = 20,  # Show more entries per page
+        paging = FALSE,   # Disable paging to show all entries
         searching = FALSE,
         ordering = FALSE,
         info = FALSE,
-        paging = FALSE,
-        dom = 't'
+        dom = 't',        # Only show the table
+        scrollY = '350px',
+        scrollCollapse = TRUE,
+        columnDefs = list(
+            list(width = '120px', targets = 0),  # Type column
+            list(width = '250px', targets = 1)   # Description column
+        )
     ), escape = FALSE)
     
     # Handle node selection
@@ -282,5 +289,52 @@ server <- function(input, output, session) {
         }, error = function(e) {
             showNotification(paste("Error applying annotations:", e$message), type = "error")
         })
+    })
+    
+    # Phylostratum legend table
+    output$phylostratum_legend_table <- DT::renderDataTable({
+        legend_df <- generate_phylostratum_legend()
+        
+        if (is.null(legend_df)) {
+            return(data.frame(Message = "Phylostratum legend data not available"))
+        }
+        
+        # Create a formatted data table with colored cells
+        DT::datatable(
+            legend_df[, c("Rank", "Name")],  # Show rank and name columns
+            options = list(
+                pageLength = 28,  # Show all strata
+                paging = FALSE,   # Disable paging
+                searching = FALSE, # Disable search
+                info = FALSE,     # Hide table info
+                dom = 't',        # Only show table
+                scrollY = '350px',
+                scrollCollapse = TRUE,
+                columnDefs = list(
+                    list(width = '40px', targets = 0, className = 'text-center'),  # Rank column
+                    list(width = '160px', targets = 1)  # Name column
+                )
+            ),
+            rownames = FALSE,
+            colnames = c("PS", "Evolutionary Stage")
+        ) %>%
+        DT::formatStyle(
+            "Rank",
+            backgroundColor = DT::styleEqual(
+                legend_df$Rank,
+                legend_df$Color
+            ),
+            color = DT::styleEqual(
+                legend_df$Rank,
+                sapply(legend_df$Color, function(color) {
+                    if (is.na(color)) return("#000000")
+                    # Calculate brightness to determine text color
+                    rgb_vals <- col2rgb(color)
+                    brightness <- (rgb_vals[1] * 0.299 + rgb_vals[2] * 0.587 + rgb_vals[3] * 0.114) / 255
+                    if (brightness < 0.5) "#FFFFFF" else "#000000"
+                })
+            ),
+            fontWeight = "bold"
+        )
     })
 }
