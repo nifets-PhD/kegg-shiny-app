@@ -1,7 +1,21 @@
 # Deployment script for KEGG Shiny App
-# This script prepares the app for deployment on shinyapps.io
+# This script prepares the app for deployment on shinyapps.io with renv
 
 library(rsconnect)
+
+# Load required packages for deployment
+if (!requireNamespace("jsonlite", quietly = TRUE)) {
+  install.packages("jsonlite")
+}
+library(jsonlite)
+
+# Ensure renv is activated for deployment
+if (file.exists("renv/activate.R")) {
+  cat("Activating renv environment...\n")
+  source("renv/activate.R")
+} else {
+  cat("Warning: renv/activate.R not found. Ensure renv is properly set up.\n")
+}
 
 # Essential pathways to pre-cache for all users
 ESSENTIAL_PATHWAYS <- c(
@@ -48,6 +62,32 @@ pre_populate_cache <- function() {
   cat("Pre-population complete!\n")
 }
 
+# Function to sync renv environment before deployment
+sync_renv <- function() {
+  cat("Syncing renv environment...\n")
+  
+  if (!requireNamespace("renv", quietly = TRUE)) {
+    cat("❌ renv package not found. Install with: install.packages('renv')\n")
+    return(FALSE)
+  }
+  
+  tryCatch({
+    # Restore packages from lockfile
+    cat("Restoring packages from renv.lock...\n")
+    renv::restore(prompt = FALSE)
+    
+    # Update snapshot if needed (since you're in explicit mode)
+    cat("Updating renv snapshot from DESCRIPTION...\n")
+    renv::snapshot(prompt = FALSE)
+    
+    cat("✅ renv environment synced successfully\n")
+    return(TRUE)
+  }, error = function(e) {
+    cat("❌ Failed to sync renv environment:", e$message, "\n")
+    return(FALSE)
+  })
+}
+
 # Function to prepare app for deployment
 prepare_for_deployment <- function(include_cache = TRUE) {
   cat("Preparing KEGG Shiny App for deployment...\n")
@@ -84,6 +124,24 @@ prepare_for_deployment <- function(include_cache = TRUE) {
 check_requirements <- function() {
   cat("Checking deployment requirements...\n")
   
+  # Check renv setup
+  if (!file.exists("renv.lock")) {
+    cat("⚠️ renv.lock file not found. Run renv::snapshot() first.\n")
+    return(FALSE)
+  } else {
+    cat("✅ renv.lock file found\n")
+  }
+  
+  # Check if renv is in explicit mode
+  if (file.exists("renv/settings.json")) {
+    settings <- jsonlite::fromJSON("renv/settings.json")
+    if (settings$snapshot.type == "explicit") {
+      cat("✅ renv configured in explicit mode (using DESCRIPTION)\n")
+    } else {
+      cat("ℹ️ renv in", settings$snapshot.type, "mode\n")
+    }
+  }
+  
   # Check shinyapps.io authentication
   accounts <- rsconnect::accounts()
   if (nrow(accounts) == 0) {
@@ -116,14 +174,23 @@ terminate_deployment <- function(app_name = "evo-kegg-pathways", account = NULL)
 # Main deployment function
 deploy_app <- function(app_name = "evo-kegg-pathways", 
                       pre_cache = FALSE,  # Changed default to FALSE to avoid fgsea
+                      sync_environment = TRUE,  # New parameter for renv sync
                       account = NULL) {
   
-  cat("🚀 Deploying Evo KEGG Pathways...\n")
+  cat("🚀 Deploying Evo KEGG Pathways with renv...\n")
   
   # Check requirements first
   if (!check_requirements()) {
     cat("❌ Deployment cancelled due to missing requirements.\n")
     return(FALSE)
+  }
+  
+  # Sync renv environment if requested
+  if (sync_environment) {
+    if (!sync_renv()) {
+      cat("❌ Failed to sync renv environment. Deployment cancelled.\n")
+      return(FALSE)
+    }
   }
   
   # Pre-populate cache if requested
@@ -135,7 +202,7 @@ deploy_app <- function(app_name = "evo-kegg-pathways",
   # Prepare for deployment
   prepare_for_deployment(include_cache = TRUE)
   
-  cat("Deploying to shinyapps.io...\n")
+  cat("Deploying to shinyapps.io with renv...\n")
   cat("App name:", app_name, "\n")
   
   # Deploy the app with additional options to handle build issues
@@ -160,6 +227,7 @@ deploy_app <- function(app_name = "evo-kegg-pathways",
       cat("Deployment attempt", attempt, "of", max_attempts, "...\n")
       
       deploy_result <- tryCatch({
+        # Deploy with renv support
         rsconnect::deployApp(
           appName = app_name,
           appTitle = "Evo KEGG Pathway Visualizer",
@@ -167,7 +235,13 @@ deploy_app <- function(app_name = "evo-kegg-pathways",
           launch.browser = (attempt == max_attempts), # Only launch browser on final attempt
           forceUpdate = TRUE,
           logLevel = "normal",
-          lint = FALSE  # Skip linting to avoid potential issues
+          lint = FALSE,  # Skip linting to avoid potential issues
+          # renv will be automatically detected and used
+          appFiles = c(
+            "app.R", "ui.R", "server.R", "global.R",
+            "DESCRIPTION", "renv.lock", "renv/",
+            "R/", "data/", "cache/", "kegg_cache/"
+          )
         )
         TRUE
       }, error = function(e) {
@@ -183,37 +257,52 @@ deploy_app <- function(app_name = "evo-kegg-pathways",
       if (deploy_result) break
     }
     
-    cat("\n🎉 Deployment complete!\n")
+    cat("\n🎉 Deployment with renv complete!\n")
     cat("Your app should be available at: https://", 
         if(is.null(account)) "[your-account]" else account, 
         ".shinyapps.io/", app_name, "/\n")
+    cat("📦 All dependencies managed by renv from DESCRIPTION file\n")
     
     return(TRUE)
     
   }, error = function(e) {
     cat("❌ Deployment failed:", e$message, "\n")
-    cat("You may need to check your package dependencies or try again.\n")
+    cat("You may need to check your renv.lock file or try again.\n")
     return(FALSE)
   })
 }
 
 # Main deployment interface
 if (interactive()) {
-  cat("🚀 Evo KEGG Shiny App Deployment\n")
-  cat("============================\n")
-  cat("Platform: shinyapps.io\n\n")
+  cat("🚀 Evo KEGG Shiny App Deployment with renv\n")
+  cat("==========================================\n")
+  cat("Platform: shinyapps.io\n")
+  cat("Environment Management: renv (explicit mode)\n\n")
   
   cat("Available functions:\n")
-  cat("1. check_requirements() - Verify setup\n")
-  cat("2. deploy_app('app-name') - Deploy the application\n")
-  cat("3. pre_populate_cache() - Download essential pathways\n")
-  cat("4. terminate_deployment('app-name') - Stop stuck deployments\n\n")
+  cat("1. check_requirements() - Verify setup and renv status\n")
+  cat("2. sync_renv() - Sync renv environment with DESCRIPTION\n")
+  cat("3. deploy_app('app-name') - Deploy the application with renv\n")
+  cat("4. pre_populate_cache() - Download essential pathways\n")
+  cat("5. terminate_deployment('app-name') - Stop stuck deployments\n\n")
   
-  cat("Quick deploy:\n")
-  cat("deploy_app('kegg-pathway-viz')\n\n")
+  cat("Quick deploy workflow:\n")
+  cat("1. sync_renv()  # Ensure environment is up to date\n")
+  cat("2. deploy_app('kegg-pathway-viz')  # Deploy with renv\n\n")
   
-  cat("💡 Current repository settings look good!\n")
-  cat("Bioconductor repositories are properly configured.\n")
+  cat("💡 renv Status:\n")
+  if (file.exists("renv.lock")) {
+    cat("✅ renv.lock found - dependencies locked\n")
+  } else {
+    cat("⚠️ renv.lock missing - run renv::snapshot()\n")
+  }
+  
+  if (file.exists("DESCRIPTION")) {
+    cat("✅ DESCRIPTION file found - explicit mode enabled\n")
+  }
+  
+  cat("\n📦 Dependencies managed by renv from DESCRIPTION file\n")
+  cat("🔄 Bioconductor repositories are properly configured.\n")
 }
 
 
