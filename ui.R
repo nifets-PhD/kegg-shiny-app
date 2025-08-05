@@ -1,6 +1,6 @@
 # Define UI
 ui <- dashboardPage(
-    dashboardHeader(title = "KEGG Pathway Visualizer"),
+    dashboardHeader(title = "Evo KEGG Pathways"),
     
     dashboardSidebar(
         sidebarMenu(
@@ -35,6 +35,13 @@ ui <- dashboardPage(
                         tabsetPanel(
                             tabPanel("Text Input",
                                 br(),
+                                div(style = "padding: 10px; background-color: #d1ecf1; border: 1px solid #bee5eb; border-radius: 5px; margin-bottom: 15px;",
+                                    h5(style = "color: #0c5460; margin-top: 0;", "📋 Important: Use HGNC Gene IDs"),
+                                    p(style = "color: #0c5460; margin-bottom: 5px;", 
+                                      "Please use official HGNC (Human Gene Nomenclature Committee) gene symbols."),
+                                    p(style = "color: #0c5460; margin-bottom: 0; font-size: 12px;",
+                                      "Examples: TP53, BRCA1, EGFR, MYC (not Entrez IDs or Ensembl IDs)")
+                                ),
                                 textAreaInput("gene_text", "Enter Gene Symbols (ONE PER LINE):",
                                              value = "TP53\nBRCA1\nEGFR\nMYC\nGAPDH\nMTOR\nAKT1\nPIK3CA\nPTEN\nTSC1\nINS\nIGF1\nIRS1\nFOXO1\nGSK3B\nVEGFA\nHIF1A\nMAPK1\nRAF1\nRAS",
                                              placeholder = "REQUIRED: Enter gene symbols separated by newlines ONLY!\nTP53\nBRCA1\nEGFR\nMYC\nGAPDH",
@@ -44,6 +51,13 @@ ui <- dashboardPage(
                             ),
                             tabPanel("Upload File",
                                 br(),
+                                div(style = "padding: 10px; background-color: #d1ecf1; border: 1px solid #bee5eb; border-radius: 5px; margin-bottom: 15px;",
+                                    h5(style = "color: #0c5460; margin-top: 0;", "📋 Important: Use HGNC Gene IDs"),
+                                    p(style = "color: #0c5460; margin-bottom: 5px;", 
+                                      "Please use official HGNC (Human Gene Nomenclature Committee) gene symbols."),
+                                    p(style = "color: #0c5460; margin-bottom: 0; font-size: 12px;",
+                                      "Examples: TP53, BRCA1, EGFR, MYC (not Entrez IDs or Ensembl IDs)")
+                                ),
                                 fileInput("gene_file", "Upload Gene List (TXT/CSV):",
                                          accept = c(".txt", ".csv", ".tsv")),
                                 helpText("REQUIRED: One gene symbol per line only (HGNC format, e.g., TP53, BRCA1)"),

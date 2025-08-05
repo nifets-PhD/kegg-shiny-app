@@ -14,11 +14,6 @@ RUN R -e "install.packages(c('shinydashboard', 'visNetwork', 'DT', 'xml2', 'dply
 # Install Bioconductor packages
 RUN R -e "if (!require('BiocManager', quietly = TRUE)) install.packages('BiocManager'); BiocManager::install(c('KEGGREST', 'KEGGgraph', 'biomaRt'))"
 
-# Install devtools for GitHub installations
-RUN R -e "install.packages('devtools', repos='https://cran.r-project.org/')"
-
-# Install myTAI from GitHub
-RUN R -e "devtools::install_github('drostlab/myTAI')"
 
 # Copy app files
 COPY . /srv/shiny-server/kegg-app/

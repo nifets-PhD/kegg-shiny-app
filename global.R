@@ -13,6 +13,7 @@ library(dplyr)
 library(plotly)
 library(shinyWidgets)
 library(ggplot2)
+library(scales)  # Required for PS_colours function
 
 # Install and load biomaRt if not available
 if (!requireNamespace("biomaRt", quietly = TRUE)) {
@@ -53,13 +54,6 @@ for (pkg in required_cran_packages) {
 # Load the packages
 library(clusterProfiler)
 library(org.Hs.eg.db)
-
-# Install myTAI for phylostratum coloring (optional)
-if (!requireNamespace("myTAI", quietly = TRUE)) {
-    message("myTAI package not found. Installing for phylostratum coloring...")
-    install.packages("myTAI")
-}
-# Note: myTAI is loaded conditionally in the phylostratum functions
 
 # Source utility functions
 source("R/kegg_utils.R")

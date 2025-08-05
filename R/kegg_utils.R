@@ -1227,6 +1227,18 @@ map_genes_to_phylostrata <- function(gene_symbols, phylomap) {
     return(gene_strata)
 }
 
+# Phylostratum color generation function (from MyTAI dev version)
+# This function generates colors for phylostrata visualization
+PS_colours <- function(n) {
+    vals <- 1:n |>
+        log() |>
+        scales::rescale()
+   
+    pal <- grDevices::colorRampPalette(c("black", "#AD6F3B", "lightgreen"))
+   
+    pal(100)[floor(vals * 99) + 1]
+}
+
 #' Apply phylostratum coloring to nodes
 #' @param nodes data.frame with node information
 #' @param phylomap data.frame with phylostratum mapping
@@ -1234,11 +1246,6 @@ map_genes_to_phylostrata <- function(gene_symbols, phylomap) {
 apply_phylostratum_coloring <- function(nodes, phylomap = NULL) {
     if (is.null(phylomap)) {
         phylomap <- load_phylomap()
-    }
-    
-    # Check if myTAI is available
-    if (!requireNamespace("myTAI", quietly = TRUE)) {
-        stop("myTAI package is required for phylostratum coloring. Please install it with: install.packages('myTAI')")
     }
     
     # Extract gene symbols from node labels
@@ -1255,8 +1262,8 @@ apply_phylostratum_coloring <- function(nodes, phylomap = NULL) {
         return(nodes)
     }
     
-    # Get colors using myTAI PS_colours function
-    all_colors <- myTAI::PS_colours(max(unique_strata, na.rm = TRUE))
+    # Get colors using our PS_colours function
+    all_colors <- PS_colours(max(unique_strata, na.rm = TRUE))
     
     # Create color mapping
     color_map <- setNames(all_colors[unique_strata], unique_strata)
@@ -1331,15 +1338,9 @@ generate_phylostratum_legend <- function() {
     return(NULL)
   }
   
-  # Get colors from myTAI
-  if (!requireNamespace("myTAI", quietly = TRUE)) {
-    warning("myTAI package required for phylostratum coloring")
-    return(NULL)
-  }
-  
   # Get unique strata (1 to max rank)
   max_stratum <- max(legend_data$Rank)
-  all_colors <- myTAI::PS_colours(max_stratum)
+  all_colors <- PS_colours(max_stratum)
   
   # Create legend data frame
   legend_df <- data.frame(
