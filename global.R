@@ -34,7 +34,7 @@ if (!requireNamespace("BiocManager", quietly = TRUE)) {
 }
 
 # Install required Bioconductor packages for enrichment analysis
-required_bioc_packages <- c("clusterProfiler", "org.Hs.eg.db", "fgsea", "DOSE", "enrichplot")
+required_bioc_packages <- c("clusterProfiler", "org.Hs.eg.db", "DOSE", "enrichplot")
 for (pkg in required_bioc_packages) {
     if (!requireNamespace(pkg, quietly = TRUE)) {
         cat("Installing", pkg, "...\n")

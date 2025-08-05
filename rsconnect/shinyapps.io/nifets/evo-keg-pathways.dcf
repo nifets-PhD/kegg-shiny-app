@@ -1,0 +1,10 @@
+name: evo-keg-pathways
+title: Evo KEGG Pathway Visualizer
+username: nifets
+account: nifets
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 15163190
+bundleId:
+url: https://nifets.shinyapps.io/evo-keg-pathways/
+version: 1

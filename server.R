@@ -11,9 +11,6 @@ server <- function(input, output, session) {
         sequence_data = NULL
     )
     
-    # HSA gene data for current pathway (reactive)
-    pathway_hsa_data <- reactiveVal(data.frame())
-    
     # Gene upload functionality
     uploaded_genes <- reactiveVal(character(0))
     
@@ -297,63 +294,6 @@ server <- function(input, output, session) {
     })
     outputOptions(output, "genes_loaded", suspendWhenHidden = FALSE)
     
-    # HSA genes table
-    output$hsa_genes_table <- renderDT({
-        hsa_data <- pathway_hsa_data()
-        
-        if (nrow(hsa_data) == 0) {
-            return(datatable(
-                data.frame(Message = "No HSA gene data available. Load a pathway to see gene information."),
-                options = list(pageLength = 5, searching = FALSE, info = FALSE, paging = FALSE),
-                rownames = FALSE
-            ))
-        }
-        
-        # Create summary table using the HSA utility function
-        tryCatch({
-            source("R/hsa_utils.R")
-            summary_table <- create_hsa_summary_table(hsa_data)
-            
-            datatable(
-                summary_table,
-                options = list(
-                    pageLength = 15,
-                    searching = TRUE,
-                    info = TRUE,
-                    lengthChange = TRUE,
-                    scrollX = TRUE,
-                    columnDefs = list(
-                        list(className = 'dt-center', targets = c(4, 6)),  # Chromosome and Has_Sequence
-                        list(width = '100px', targets = 0),  # HSA_ID
-                        list(width = '100px', targets = 1),  # Gene_Symbol
-                        list(width = '200px', targets = 2),  # Gene_Name
-                        list(width = '300px', targets = 3)   # Description
-                    )
-                ),
-                rownames = FALSE,
-                colnames = c("HSA ID", "Gene Symbol", "Gene Name", "Description", "Chromosome", "Gene Type", "Seq Length")
-            ) %>%
-            formatStyle(
-                'Has_Sequence',
-                backgroundColor = styleEqual(TRUE, '#d4edda'),
-                color = styleEqual(TRUE, '#155724')
-            ) %>%
-            formatStyle(
-                'Gene_Type',
-                backgroundColor = styleEqual('protein_coding', '#e2f3ff'),
-                color = styleEqual('protein_coding', '#0066cc')
-            )
-            
-        }, error = function(e) {
-            cat("Error creating HSA summary table:", e$message, "\n")
-            return(datatable(
-                data.frame(Error = paste("Error creating table:", e$message)),
-                options = list(pageLength = 5, searching = FALSE, info = FALSE, paging = FALSE),
-                rownames = FALSE
-            ))
-        })
-    })
-    
     # Search pathways
     observeEvent(input$search_pathways, {
         req(input$pathway_search)
@@ -391,13 +331,10 @@ server <- function(input, output, session) {
         
         # Load pathway graph with HSA gene data
         tryCatch({
-            pathway_data <- parse_kegg_pathway_with_hsa(selected_row$pathway_id, use_cached = TRUE, fetch_hsa_data = FALSE)
+            pathway_data <- parse_kegg_pathway_with_hsa(selected_row$pathway_id, use_cached = TRUE)
             values$pathway_graph <- pathway_data$kegg_data
             values$nodes <- pathway_data$nodes
             values$edges <- pathway_data$edges
-            
-            # Store HSA gene data
-            pathway_hsa_data(pathway_data$hsa_data)
             
             showNotification(
                 paste("Pathway loaded successfully with", nrow(pathway_data$nodes), "network nodes!"), 
@@ -569,60 +506,7 @@ server <- function(input, output, session) {
                         }
                     }
                     
-                    # Get HSA gene information
-                    hsa_info_text <- ""
-                    current_hsa_data <- pathway_hsa_data()
-                    if (!is.null(current_hsa_data) && nrow(current_hsa_data) > 0) {
-                        # Try to match by HGNC symbol or HSA ID
-                        matching_gene <- NULL
-                        
-                        if (!is.null(selected_node$hgnc_symbol) && selected_node$hgnc_symbol != "") {
-                            matching_gene <- current_hsa_data[current_hsa_data$hgnc_symbol == selected_node$hgnc_symbol, ]
-                        }
-                        
-                        # If no match by HGNC, try to extract HSA ID from node
-                        if (is.null(matching_gene) || nrow(matching_gene) == 0) {
-                            # Extract HSA code from gene_name if it contains hsa:
-                            if (!is.null(selected_node$gene_name) && grepl("hsa:", selected_node$gene_name)) {
-                                hsa_codes <- regmatches(selected_node$gene_name, gregexpr("hsa:\\d+", selected_node$gene_name))[[1]]
-                                if (length(hsa_codes) > 0) {
-                                    hsa_numeric <- gsub("hsa:", "", hsa_codes[1])
-                                    matching_gene <- current_hsa_data[current_hsa_data$hsa_code == hsa_numeric, ]
-                                }
-                            }
-                        }
-                        
-                        if (!is.null(matching_gene) && nrow(matching_gene) > 0) {
-                            gene_info <- matching_gene[1, ]
-                            
-                            hsa_info_text <- paste0("\n\n=== HSA GENE DATA ===\n",
-                                "HSA ID: ", gene_info$hsa_code, "\n",
-                                "Gene Symbol: ", gene_info$hgnc_symbol, "\n",
-                                "Gene Name: ", gene_info$external_gene_name, "\n",
-                                "Gene Type: ", gene_info$gene_biotype, "\n",
-                                "Chromosome: ", gene_info$chromosome_name, "\n",
-                                "Protein ID: ", ifelse(is.na(gene_info$protein_id), "N/A", gene_info$protein_id), "\n"
-                            )
-                            
-                            if (!is.na(gene_info$peptide) && gene_info$peptide != "") {
-                                hsa_info_text <- paste0(hsa_info_text,
-                                    "Amino Acid Sequence Length: ", gene_info$peptide_length, " residues\n",
-                                    "Sequence Preview: ", substr(gene_info$peptide, 1, 50), 
-                                    ifelse(nchar(gene_info$peptide) > 50, "...", ""), "\n"
-                                )
-                            } else {
-                                hsa_info_text <- paste0(hsa_info_text, "Amino Acid Sequence: Not available\n")
-                            }
-                            
-                            if (!is.na(gene_info$description)) {
-                                hsa_info_text <- paste0(hsa_info_text,
-                                    "Description: ", substr(gene_info$description, 1, 200), 
-                                    ifelse(nchar(gene_info$description) > 200, "...", ""), "\n"
-                                )
-                            }
-                        }
-                    }
-                    
+                    # Display node information
                     paste(
                         "=== GENE INFORMATION ===", "\n",
                         "KEGG Gene ID:", selected_node$kegg_id, "\n",
@@ -635,8 +519,7 @@ server <- function(input, output, session) {
                         "In KEGG, this gene is referenced as:", selected_node$kegg_id, "\n",
                         "Common name/symbol:", selected_node$hgnc_symbol, "\n\n",
                         "Tip: Search for '", selected_node$kegg_id, "' in KEGG database", "\n",
-                        "or '", selected_node$hgnc_symbol, "' in gene databases",
-                        hsa_info_text
+                        "or '", selected_node$hgnc_symbol, "' in gene databases"
                     )
                 } else {
                     "No node selected - click on a node to see detailed gene information"
@@ -993,15 +876,12 @@ server <- function(input, output, session) {
             # Load pathway graph with HSA gene data
             tryCatch({
                 progress$set(message = "Parsing pathway data...", value = 0.5)
-                pathway_data <- parse_kegg_pathway_with_hsa(pathway_id, use_cached = TRUE, fetch_hsa_data = FALSE)
+                pathway_data <- parse_kegg_pathway_with_hsa(pathway_id, use_cached = TRUE)
                 
                 progress$set(message = "Building network...", value = 0.7)
                 values$pathway_graph <- pathway_data$kegg_data
                 values$nodes <- pathway_data$nodes
                 values$edges <- pathway_data$edges
-                
-                # Store HSA gene data
-                pathway_hsa_data(pathway_data$hsa_data)
                 
                 progress$set(message = "Finalizing...", value = 0.9)
                 

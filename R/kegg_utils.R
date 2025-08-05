@@ -1632,52 +1632,27 @@ apply_gene_highlighting <- function(nodes, highlight_genes) {
     return(nodes)
 }
 
-#' Parse KEGG pathway and fetch HSA gene data
+#' Parse KEGG pathway (simplified without HSA data)
 #' @param pathway_id KEGG pathway ID (e.g., "hsa04152")
 #' @param use_cached logical, whether to use cached KEGG data
-#' @param fetch_hsa_data logical, whether to fetch HSA gene data
-#' @return list containing nodes, edges, and HSA gene data
-parse_kegg_pathway_with_hsa <- function(pathway_id, use_cached = TRUE, fetch_hsa_data = TRUE) {
-    cat("Loading KEGG pathway", pathway_id, "with HSA gene data...\n")
+#' @return list containing nodes, edges, and kegg_data
+parse_kegg_pathway_with_hsa <- function(pathway_id, use_cached = TRUE) {
+    cat("Loading KEGG pathway", pathway_id, "...\n")
     
     # Load KEGG pathway data
     kegg_result <- load_kegg_pathway(pathway_id)
     
     if (is.null(kegg_result$nodes) || nrow(kegg_result$nodes) == 0) {
         cat("No pathway data loaded\n")
-        return(list(nodes = data.frame(), edges = data.frame(), hsa_data = data.frame()))
+        return(list(nodes = data.frame(), edges = data.frame()))
     }
     
     # The kegg_data should be the parsed XML from load_kegg_pathway
     kegg_data <- kegg_result$graph  # Try using 'graph' instead of 'kegg_data'
     
-    # Initialize HSA data
-    hsa_data <- data.frame()
-    
-    # Fetch HSA gene data if requested
-    if (fetch_hsa_data && !is.null(kegg_data)) {
-        tryCatch({
-            # Source HSA utilities
-            source("R/hsa_utils.R")
-            
-            # Create cache directory
-            hsa_cache_dir <- create_hsa_cache()
-            
-            # Get HSA data for this pathway
-            hsa_data <- get_pathway_hsa_data(kegg_data, hsa_cache_dir)
-            
-            cat("Successfully loaded HSA data for", nrow(hsa_data), "genes\n")
-            
-        }, error = function(e) {
-            cat("Error fetching HSA data:", e$message, "\n")
-            hsa_data <- data.frame()
-        })
-    }
-    
     return(list(
         nodes = kegg_result$nodes,
         edges = kegg_result$edges,
-        kegg_data = kegg_data,
-        hsa_data = hsa_data
+        kegg_data = kegg_data
     ))
 }

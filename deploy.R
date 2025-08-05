@@ -27,7 +27,6 @@ pre_populate_cache <- function() {
   
   # Create cache directories
   if (!dir.exists("kegg_cache")) dir.create("kegg_cache")
-  if (!dir.exists("hsa_cache")) dir.create("hsa_cache")
   
   # Pre-load essential pathways
   for (pathway_id in ESSENTIAL_PATHWAYS) {
@@ -62,14 +61,6 @@ prepare_for_deployment <- function(include_cache = TRUE) {
       if (length(cache_files) > 0) {
         file.copy(cache_files, "cache/", overwrite = TRUE)
         cat("Copied", length(cache_files), "KEGG cache files\n")
-      }
-    }
-    
-    if (dir.exists("hsa_cache")) {
-      hsa_files <- list.files("hsa_cache", full.names = TRUE)
-      if (length(hsa_files) > 0) {
-        file.copy(hsa_files, "cache/", overwrite = TRUE)
-        cat("Copied", length(hsa_files), "HSA cache files\n")
       }
     }
   }
@@ -109,7 +100,7 @@ check_requirements <- function() {
 
 # Main deployment function
 deploy_app <- function(app_name = "evo-kegg-pathways", 
-                      pre_cache = TRUE, 
+                      pre_cache = FALSE,  # Changed default to FALSE to avoid fgsea
                       account = NULL) {
   
   cat("🚀 Deploying Evo KEGG Pathways...\n")
@@ -132,7 +123,7 @@ deploy_app <- function(app_name = "evo-kegg-pathways",
   cat("Deploying to shinyapps.io...\n")
   cat("App name:", app_name, "\n")
   
-  # Deploy the app
+  # Deploy the app with additional options to handle build issues
   tryCatch({
     rsconnect::deployApp(
       appName = app_name,
@@ -140,7 +131,8 @@ deploy_app <- function(app_name = "evo-kegg-pathways",
       account = account,
       launch.browser = TRUE,
       forceUpdate = TRUE,
-      logLevel = "normal"
+      logLevel = "normal",
+      lint = FALSE  # Skip linting to avoid potential issues
     )
     
     cat("\n🎉 Deployment complete!\n")
