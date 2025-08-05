@@ -451,3 +451,175 @@ create_color_legend <- function(color_scale, annotation_name) {
             )
     }
 }
+
+#' Download and cache complete HGNC to UniProt mapping
+#' @param force_refresh logical, whether to force refresh the cache
+#' @return data.frame with HGNC symbols and UniProt IDs
+download_hgnc_uniprot_mapping <- function(force_refresh = FALSE) {
+    # Define cache file path
+    mapping_cache_file <- file.path("data", "hgnc_uniprot_mapping.rds")
+    
+    # Create data directory if it doesn't exist
+    if (!dir.exists("data")) {
+        dir.create("data", recursive = TRUE)
+    }
+    
+    # Check if cache exists and is recent (less than 30 days old)
+    if (file.exists(mapping_cache_file) && !force_refresh) {
+        file_age <- difftime(Sys.time(), file.mtime(mapping_cache_file), units = "days")
+        if (file_age < 30) {
+            cat("Loading cached HGNC-UniProt mapping (", round(file_age, 1), "days old)...\n")
+            mapping_data <- readRDS(mapping_cache_file)
+            cat("Loaded", nrow(mapping_data), "cached mappings\n")
+            return(mapping_data)
+        } else {
+            cat("Cache is", round(file_age, 1), "days old, refreshing...\n")
+        }
+    }
+    
+    tryCatch({
+        if (!requireNamespace("biomaRt", quietly = TRUE)) {
+            stop("biomaRt package is required. Please install it with: BiocManager::install('biomaRt')")
+        }
+        
+        cat("Downloading complete HGNC to UniProt mapping from Ensembl...\n")
+        
+        # Connect to Ensembl BioMart
+        cat("Connecting to Ensembl BioMart...\n")
+        ensembl <- biomaRt::useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+        
+        # Get all HGNC symbols and their UniProt mappings
+        # This downloads the complete mapping for all human genes
+        cat("Querying BioMart for gene mappings...\n")
+        mapping_result <- biomaRt::getBM(
+            attributes = c("hgnc_symbol", "uniprotswissprot", "uniprotsptrembl", 
+                          "ensembl_gene_id", "description"),
+            mart = ensembl
+        )
+        
+        cat("Downloaded", nrow(mapping_result), "gene records from Ensembl\n")
+        
+        if (nrow(mapping_result) > 0) {
+            cat("Processing", nrow(mapping_result), "records...\n")
+            
+            # First, filter for valid HGNC symbols
+            has_hgnc <- !is.na(mapping_result$hgnc_symbol) & mapping_result$hgnc_symbol != ""
+            cat("Records with HGNC symbols:", sum(has_hgnc), "\n")
+            
+            # Then filter for at least one UniProt ID
+            has_swissprot <- !is.na(mapping_result$uniprotswissprot) & mapping_result$uniprotswissprot != ""
+            has_trembl <- !is.na(mapping_result$uniprotsptrembl) & mapping_result$uniprotsptrembl != ""
+            has_uniprot <- has_swissprot | has_trembl
+            
+            cat("Records with SwissProt IDs:", sum(has_swissprot, na.rm = TRUE), "\n")
+            cat("Records with TrEMBL IDs:", sum(has_trembl, na.rm = TRUE), "\n")
+            cat("Records with any UniProt ID:", sum(has_uniprot, na.rm = TRUE), "\n")
+            
+            # Combine filters
+            mapping_filtered <- mapping_result[has_hgnc & has_uniprot, ]
+            cat("Records after filtering:", nrow(mapping_filtered), "\n")
+            
+            # Create a clean mapping with preferred UniProt ID
+            mapping_clean <- data.frame(
+                hgnc_symbol = mapping_filtered$hgnc_symbol,
+                uniprot_id = ifelse(
+                    !is.na(mapping_filtered$uniprotswissprot) & mapping_filtered$uniprotswissprot != "",
+                    mapping_filtered$uniprotswissprot,  # Prefer Swiss-Prot
+                    mapping_filtered$uniprotsptrembl    # Fall back to TrEMBL
+                ),
+                uniprot_swissprot = mapping_filtered$uniprotswissprot,
+                uniprot_trembl = mapping_filtered$uniprotsptrembl,
+                ensembl_gene_id = mapping_filtered$ensembl_gene_id,
+                description = mapping_filtered$description,
+                stringsAsFactors = FALSE
+            )
+            
+            # Remove entries where uniprot_id is still NA or empty
+            mapping_clean <- mapping_clean[
+                !is.na(mapping_clean$uniprot_id) & mapping_clean$uniprot_id != "",
+            ]
+            
+            # For genes with multiple UniProt IDs, keep the first one (usually the primary)
+            mapping_clean <- mapping_clean[!duplicated(mapping_clean$hgnc_symbol), ]
+            
+            cat("Created clean mapping for", nrow(mapping_clean), "genes with UniProt IDs\n")
+            
+            # Save to cache
+            saveRDS(mapping_clean, mapping_cache_file)
+            cat("Saved mapping to cache:", mapping_cache_file, "\n")
+            
+            # Also save as TSV for human inspection
+            tsv_file <- file.path("data", "hgnc_uniprot_mapping.tsv")
+            write.table(mapping_clean, tsv_file, sep = "\t", row.names = FALSE, quote = FALSE)
+            cat("Also saved as TSV file:", tsv_file, "\n")
+            
+            return(mapping_clean)
+        } else {
+            stop("No mapping data retrieved from Ensembl")
+        }
+        
+    }, error = function(e) {
+        cat("Error downloading HGNC-UniProt mapping:", e$message, "\n")
+        
+        # Return empty dataframe if download fails
+        return(data.frame(
+            hgnc_symbol = character(0),
+            uniprot_id = character(0),
+            uniprot_swissprot = character(0),
+            uniprot_trembl = character(0),
+            ensembl_gene_id = character(0),
+            description = character(0),
+            stringsAsFactors = FALSE
+        ))
+    })
+}
+
+#' Get UniProt ID for HGNC gene symbol using cached mapping
+#' @param hgnc_symbol HGNC gene symbol
+#' @param mapping_data optional cached mapping data
+#' @return UniProt ID or NULL if not found
+get_uniprot_id <- function(hgnc_symbol, mapping_data = NULL) {
+    # Load mapping data if not provided
+    if (is.null(mapping_data)) {
+        mapping_data <- download_hgnc_uniprot_mapping()
+    }
+    
+    # Find the UniProt ID for this gene
+    match_idx <- which(mapping_data$hgnc_symbol == hgnc_symbol)
+    
+    if (length(match_idx) > 0) {
+        uniprot_id <- mapping_data$uniprot_id[match_idx[1]]  # Take first match
+        if (!is.na(uniprot_id) && uniprot_id != "") {
+            return(uniprot_id)
+        }
+    }
+    
+    return(NULL)
+}
+
+#' Create HTML for UniProt structure link
+#' @param uniprot_id UniProt ID
+#' @return HTML string for the link
+create_uniprot_structure_link <- function(uniprot_id) {
+    if (is.null(uniprot_id) || is.na(uniprot_id) || uniprot_id == "") {
+        return("")
+    }
+    
+    uniprot_url <- paste0("https://www.uniprot.org/uniprotkb/", uniprot_id, "/entry#structure")
+    return(paste0('<a href="', uniprot_url, '" target="_blank" style="color: #0066cc; text-decoration: underline;">Go to UniProt Structure</a>'))
+}
+
+#' Initialize HGNC-UniProt mapping (run on app startup)
+#' @param force_refresh logical, whether to force refresh the cache
+#' @return invisible success status
+initialize_uniprot_mapping <- function(force_refresh = FALSE) {
+    tryCatch({
+        cat("Initializing HGNC-UniProt mapping...\n")
+        mapping_data <- download_hgnc_uniprot_mapping(force_refresh = force_refresh)
+        cat("Successfully initialized UniProt mapping for", nrow(mapping_data), "genes\n")
+        return(invisible(TRUE))
+    }, error = function(e) {
+        warning("Failed to initialize UniProt mapping: ", e$message)
+        return(invisible(FALSE))
+    })
+}

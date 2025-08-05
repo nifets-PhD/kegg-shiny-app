@@ -338,7 +338,7 @@ ui <- dashboardPage(
                         title = "Selected Node Information", status = "info", solidHeader = TRUE,
                         width = 6, collapsible = TRUE,
                         
-                        verbatimTextOutput("node_info")
+                        htmlOutput("node_info")
                     )
                 ),
                 

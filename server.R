@@ -454,20 +454,62 @@ server <- function(input, output, session) {
         if (!is.null(input$pathway_network_selected) && !is.null(values$nodes)) {
             selected_node <- values$nodes[values$nodes$id == input$pathway_network_selected, ]
             
-            output$node_info <- renderText({
+            output$node_info <- renderUI({
                 if (nrow(selected_node) > 0) {
                     # Find edges connected to this node
                     node_id <- selected_node$id
                     incoming_edges <- values$edges[values$edges$to == node_id, ]
                     outgoing_edges <- values$edges[values$edges$from == node_id, ]
                     
+                    # Get UniProt information
+                    hgnc_symbol <- selected_node$hgnc_symbol
+                    uniprot_id <- NULL
+                    uniprot_info <- NULL
+                    uniprot_link <- ""
+                    
+                    if (!is.null(hgnc_symbol) && !is.na(hgnc_symbol) && hgnc_symbol != "") {
+                        uniprot_id <- get_uniprot_id(hgnc_symbol, uniprot_mapping)
+                        if (!is.null(uniprot_id) && !is.null(uniprot_mapping)) {
+                            # Get full UniProt information from mapping
+                            uniprot_row <- uniprot_mapping[uniprot_mapping$hgnc_symbol == hgnc_symbol, ]
+                            if (nrow(uniprot_row) > 0) {
+                                uniprot_info <- uniprot_row[1, ]
+                                uniprot_link <- create_uniprot_structure_link(uniprot_id)
+                            }
+                        }
+                    }
+                    
+                    # Get phylostratum information if available
+                    phylo_info <- ""
+                    if (!is.null(selected_node$phylostratum) && !is.na(selected_node$phylostratum)) {
+                        phylo_stratum <- selected_node$phylostratum
+                        # Load phylostratum legend to get the name
+                        legend_data <- tryCatch({
+                            source("R/kegg_utils.R", local = TRUE)
+                            load_phylostratum_legend()
+                        }, error = function(e) NULL)
+                        
+                        if (!is.null(legend_data)) {
+                            phylo_name <- legend_data$Name[legend_data$Rank == phylo_stratum]
+                            if (length(phylo_name) > 0) {
+                                phylo_info <- paste0(
+                                    "<strong>Phylostratum:</strong> ", phylo_stratum, " - ", phylo_name[1], "<br>"
+                                )
+                            } else {
+                                phylo_info <- paste0("<strong>Phylostratum:</strong> ", phylo_stratum, "<br>")
+                            }
+                        } else {
+                            phylo_info <- paste0("<strong>Phylostratum:</strong> ", phylo_stratum, "<br>")
+                        }
+                    }
+                    
                     # Build relationship info
                     relationship_info <- ""
                     if (nrow(incoming_edges) > 0 || nrow(outgoing_edges) > 0) {
                         relationship_info <- paste0(
-                            "\n=== RELATIONSHIPS ===", "\n",
-                            "Incoming connections: ", nrow(incoming_edges), "\n",
-                            "Outgoing connections: ", nrow(outgoing_edges), "\n"
+                            "<br><strong>=== RELATIONSHIPS ===</strong><br>",
+                            "Incoming connections: ", nrow(incoming_edges), "<br>",
+                            "Outgoing connections: ", nrow(outgoing_edges), "<br>"
                         )
                         
                         # Show some specific relationships
@@ -484,7 +526,7 @@ server <- function(input, output, session) {
                                 
                                 relationship_info <- paste0(relationship_info, 
                                     "← ", source_name, " (", rel_type, 
-                                    if (subtype != "") paste0(": ", subtype) else "", ")", "\n")
+                                    if (subtype != "") paste0(": ", subtype) else "", ")", "<br>")
                             }
                         }
                         
@@ -501,28 +543,56 @@ server <- function(input, output, session) {
                                 
                                 relationship_info <- paste0(relationship_info, 
                                     "→ ", target_name, " (", rel_type, 
-                                    if (subtype != "") paste0(": ", subtype) else "", ")", "\n")
+                                    if (subtype != "") paste0(": ", subtype) else "", ")", "<br>")
                             }
                         }
                     }
                     
-                    # Display node information
-                    paste(
-                        "=== GENE INFORMATION ===", "\n",
-                        "KEGG Gene ID:", selected_node$kegg_id, "\n",
-                        "HGNC Symbol:", selected_node$hgnc_symbol, "\n",
-                        "Original KEGG ID:", selected_node$gene_name, "\n",
-                        "Node Type:", selected_node$type, "\n",
-                        "Display Label:", selected_node$label, "\n",
-                        relationship_info, "\n",
-                        "=== PATHWAY CONTEXT ===", "\n",
-                        "In KEGG, this gene is referenced as:", selected_node$kegg_id, "\n",
-                        "Common name/symbol:", selected_node$hgnc_symbol, "\n\n",
-                        "Tip: Search for '", selected_node$kegg_id, "' in KEGG database", "\n",
-                        "or '", selected_node$hgnc_symbol, "' in gene databases"
+                    # Create HTML content
+                    html_content <- paste0(
+                        "<strong>=== GENE INFORMATION ===</strong><br>",
+                        "<strong>KEGG Gene ID:</strong> <code>", selected_node$kegg_id, "</code><br>",
+                        "<strong>HGNC Symbol:</strong> <code>", selected_node$hgnc_symbol, "</code><br>",
+                        "<strong>Original KEGG ID:</strong> <code>", selected_node$gene_name, "</code><br>",
+                        "<strong>Node Type:</strong> ", selected_node$type, "<br>",
+                        "<strong>Display Label:</strong> ", selected_node$label, "<br>",
+                        phylo_info,
+                        if (!is.null(uniprot_info)) {
+                            paste0(
+                                "<br><strong>=== UNIPROT INFORMATION ===</strong><br>",
+                                "<strong>UniProt ID:</strong> <code>", uniprot_info$uniprot_id, "</code><br>",
+                                if (!is.na(uniprot_info$uniprot_swissprot) && uniprot_info$uniprot_swissprot != "") 
+                                    paste0("<strong>SwissProt ID:</strong> <code>", uniprot_info$uniprot_swissprot, "</code><br>") else "",
+                                if (!is.na(uniprot_info$uniprot_trembl) && uniprot_info$uniprot_trembl != "") 
+                                    paste0("<strong>TrEMBL ID:</strong> <code>", uniprot_info$uniprot_trembl, "</code><br>") else "",
+                                if (!is.na(uniprot_info$ensembl_gene_id) && uniprot_info$ensembl_gene_id != "") 
+                                    paste0("<strong>Ensembl ID:</strong> <code>", uniprot_info$ensembl_gene_id, "</code><br>") else "",
+                                if (!is.na(uniprot_info$description) && uniprot_info$description != "") {
+                                    # Clean up the description by removing the [Source:...] part
+                                    clean_desc <- gsub("\\s*\\[Source:.*\\]\\s*$", "", uniprot_info$description)
+                                    paste0("<strong>Description:</strong> ", clean_desc, "<br>")
+                                } else "",
+                                if (uniprot_link != "") paste0("<strong>Structure:</strong> ", uniprot_link, "<br>") else ""
+                            )
+                        } else if (!is.null(uniprot_id)) {
+                            paste0(
+                                "<br><strong>=== UNIPROT INFORMATION ===</strong><br>",
+                                "<strong>UniProt ID:</strong> <code>", uniprot_id, "</code><br>",
+                                if (uniprot_link != "") paste0("<strong>Structure:</strong> ", uniprot_link, "<br>") else ""
+                            )
+                        } else "",
+                        relationship_info, "<br>",
+                        "<strong>=== PATHWAY CONTEXT ===</strong><br>",
+                        "In KEGG, this gene is referenced as: <code>", selected_node$kegg_id, "</code><br>",
+                        "Common name/symbol: <code>", selected_node$hgnc_symbol, "</code><br><br>",
+                        "<em>Tip: Search for '", selected_node$kegg_id, "' in KEGG database<br>",
+                        "or '", selected_node$hgnc_symbol, "' in gene databases</em>"
                     )
+                    
+                    # Return as HTML
+                    HTML(html_content)
                 } else {
-                    "No node selected - click on a node to see detailed gene information"
+                    HTML("<em>No node selected - click on a node to see detailed gene information</em>")
                 }
             })
         }

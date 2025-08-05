@@ -98,6 +98,21 @@ check_requirements <- function() {
   return(TRUE)
 }
 
+# Function to terminate any stuck deployments
+terminate_deployment <- function(app_name = "evo-kegg-pathways", account = NULL) {
+  cat("Attempting to terminate deployment for:", app_name, "\n")
+  
+  tryCatch({
+    rsconnect::terminateApp(appName = app_name, account = account)
+    cat("✅ Successfully terminated deployment\n")
+    cat("Wait a few minutes before attempting to deploy again\n")
+    return(TRUE)
+  }, error = function(e) {
+    cat("❌ Failed to terminate deployment:", e$message, "\n")
+    return(FALSE)
+  })
+}
+
 # Main deployment function
 deploy_app <- function(app_name = "evo-kegg-pathways", 
                       pre_cache = FALSE,  # Changed default to FALSE to avoid fgsea
@@ -125,15 +140,48 @@ deploy_app <- function(app_name = "evo-kegg-pathways",
   
   # Deploy the app with additional options to handle build issues
   tryCatch({
-    rsconnect::deployApp(
-      appName = app_name,
-      appTitle = "Evo KEGG Pathway Visualizer",
-      account = account,
-      launch.browser = TRUE,
-      forceUpdate = TRUE,
-      logLevel = "normal",
-      lint = FALSE  # Skip linting to avoid potential issues
-    )
+    # First, try to terminate any existing deployments
+    cat("Checking for existing deployments...\n")
+    tryCatch({
+      apps <- rsconnect::applications(account = account)
+      existing_app <- apps[apps$name == app_name, ]
+      if (nrow(existing_app) > 0 && !is.na(existing_app$status) && existing_app$status == "deploying") {
+        cat("Found deployment in progress, attempting to terminate...\n")
+        rsconnect::terminateApp(appName = app_name, account = account)
+        Sys.sleep(5)  # Wait a moment for termination
+      }
+    }, error = function(e) {
+      cat("Note: Could not check/terminate existing deployment:", e$message, "\n")
+    })
+    
+    # Now attempt deployment with retry logic
+    max_attempts <- 3
+    for (attempt in 1:max_attempts) {
+      cat("Deployment attempt", attempt, "of", max_attempts, "...\n")
+      
+      deploy_result <- tryCatch({
+        rsconnect::deployApp(
+          appName = app_name,
+          appTitle = "Evo KEGG Pathway Visualizer",
+          account = account,
+          launch.browser = (attempt == max_attempts), # Only launch browser on final attempt
+          forceUpdate = TRUE,
+          logLevel = "normal",
+          lint = FALSE  # Skip linting to avoid potential issues
+        )
+        TRUE
+      }, error = function(e) {
+        if (grepl("409", e$message) && attempt < max_attempts) {
+          cat("HTTP 409 conflict detected, waiting before retry...\n")
+          Sys.sleep(10 * attempt)  # Exponential backoff
+          return(FALSE)
+        } else {
+          stop(e)
+        }
+      })
+      
+      if (deploy_result) break
+    }
     
     cat("\n🎉 Deployment complete!\n")
     cat("Your app should be available at: https://", 
@@ -158,7 +206,8 @@ if (interactive()) {
   cat("Available functions:\n")
   cat("1. check_requirements() - Verify setup\n")
   cat("2. deploy_app('app-name') - Deploy the application\n")
-  cat("3. pre_populate_cache() - Download essential pathways\n\n")
+  cat("3. pre_populate_cache() - Download essential pathways\n")
+  cat("4. terminate_deployment('app-name') - Stop stuck deployments\n\n")
   
   cat("Quick deploy:\n")
   cat("deploy_app('kegg-pathway-viz')\n\n")

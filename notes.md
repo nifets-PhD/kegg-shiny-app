@@ -7,9 +7,10 @@ An interactive Shiny application for exploring KEGG biological pathways with gen
 - **Interactive Pathway Visualization**: Explore KEGG pathways with authentic layouts and styling
 - **Gene-Based Pathway Search**: Find pathways containing your genes using real KEGG API queries
 - **Smart Gene Highlighting**: Upload your gene lists and see them highlighted in pathway networks
+- **UniProt Structure Links**: Detailed gene information with UniProt IDs, descriptions, phylostratum data, and direct links to protein structure pages
 - **Phylostratum Coloring**: Color genes by evolutionary age (requires myTAI package)
 - **Progress Notifications**: Real-time feedback during pathway searches
-- **Comprehensive Caching**: Optimized performance with local pathway caching
+- **Comprehensive Caching**: Optimized performance with local pathway and UniProt mapping caching
 
 ## 🚀 Live Demo
 

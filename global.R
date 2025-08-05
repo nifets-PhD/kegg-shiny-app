@@ -60,3 +60,20 @@ source("R/kegg_utils.R")
 source("R/network_utils.R")
 source("R/sequence_utils.R")
 source("R/enrichment_utils.R")
+
+# Initialize cached data
+cat("Initializing cached data...\n")
+
+# Initialize UniProt mapping (will load from cache if available)
+uniprot_mapping <- tryCatch({
+    download_hgnc_uniprot_mapping()
+}, error = function(e) {
+    cat("Warning: Could not load UniProt mapping:", e$message, "\n")
+    NULL
+})
+
+if (!is.null(uniprot_mapping)) {
+    cat("UniProt mapping loaded:", nrow(uniprot_mapping), "genes\n")
+} else {
+    cat("UniProt mapping not available\n")
+}
