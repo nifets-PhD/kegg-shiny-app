@@ -1,0 +1,6 @@
+# Exclude files from deployment
+*.Rhistory
+*.RData
+.Rproj.user/
+notes.md
+Dockerfile
