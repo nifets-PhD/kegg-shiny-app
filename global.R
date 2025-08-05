@@ -12,13 +12,12 @@ library(KEGGgraph)
 library(dplyr)
 library(plotly)
 library(shinyWidgets)
+library(ggplot2)
 
 # Install and load biomaRt if not available
 if (!requireNamespace("biomaRt", quietly = TRUE)) {
-    if (!requireNamespace("BiocManager", quietly = TRUE)) {
-        install.packages("BiocManager")
-    }
-    BiocManager::install("biomaRt")
+    cat("Installing biomaRt...\n")
+    BiocManager::install("biomaRt", ask = FALSE, update = FALSE)
 }
 library(biomaRt)
 
@@ -27,6 +26,33 @@ if (!requireNamespace("xml2", quietly = TRUE)) {
     install.packages("xml2")
 }
 library(xml2)
+
+# Install BiocManager first
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    install.packages("BiocManager")
+}
+
+# Install required Bioconductor packages for enrichment analysis
+required_bioc_packages <- c("clusterProfiler", "org.Hs.eg.db", "fgsea", "DOSE", "enrichplot")
+for (pkg in required_bioc_packages) {
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+        cat("Installing", pkg, "...\n")
+        BiocManager::install(pkg, ask = FALSE, update = FALSE)
+    }
+}
+
+# Install additional CRAN dependencies that might be needed
+required_cran_packages <- c("igraph", "tidyr", "stringr")
+for (pkg in required_cran_packages) {
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+        cat("Installing", pkg, "...\n")
+        install.packages(pkg)
+    }
+}
+
+# Load the packages
+library(clusterProfiler)
+library(org.Hs.eg.db)
 
 # Install myTAI for phylostratum coloring (optional)
 if (!requireNamespace("myTAI", quietly = TRUE)) {
@@ -39,3 +65,4 @@ if (!requireNamespace("myTAI", quietly = TRUE)) {
 source("R/kegg_utils.R")
 source("R/network_utils.R")
 source("R/sequence_utils.R")
+source("R/enrichment_utils.R")

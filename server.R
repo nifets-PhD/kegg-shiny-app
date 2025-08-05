@@ -47,6 +47,10 @@ server <- function(input, output, session) {
             genes <- load_gene_file(input$gene_file$datapath)
             uploaded_genes(genes)
             
+            # Automatically validate genes
+            validation <- validate_gene_symbols(genes)
+            gene_validation_results(validation)
+            
             showNotification(
                 paste("Loaded", length(genes), "genes from file"),
                 type = "message"
@@ -73,6 +77,10 @@ server <- function(input, output, session) {
             tryCatch({
                 genes <- parse_gene_text(input$gene_text)
                 uploaded_genes(genes)
+                
+                # Automatically validate genes
+                validation <- validate_gene_symbols(genes)
+                gene_validation_results(validation)
                 
                 showNotification(
                     paste("Loaded", length(genes), "genes from text"),
@@ -105,18 +113,6 @@ server <- function(input, output, session) {
         )
     })
     
-    # Filter pathways based on uploaded genes (optional enhancement)
-    filtered_pathways <- reactive({
-        genes <- uploaded_genes()
-        if (length(genes) == 0 || is.null(input$pathway_search) || !input$pathway_search) {
-            return(NULL)
-        }
-        
-        # For now, return all pathways - in a full implementation, 
-        # you would query KEGG API to find pathways containing these genes
-        find_pathways_with_genes(genes, values$pathways_list)
-    })
-    
     # Display uploaded genes table
     output$loaded_genes_table <- renderDT({
         genes <- uploaded_genes()
@@ -138,7 +134,7 @@ server <- function(input, output, session) {
         
         # Check if genes are in phylomap (optional)
         if (!is.null(phylomap_data)) {
-            phylomap_genes <- toupper(phylomap_data$hgnc_symbol)
+            phylomap_genes <- toupper(phylomap_data$GeneID)
             gene_df$In_Phylomap <- ifelse(toupper(gene_df$Gene_Symbol) %in% phylomap_genes, "Yes", "No")
         }
         
@@ -174,7 +170,7 @@ server <- function(input, output, session) {
         
         # Add phylomap overlap if available
         if (!is.null(phylomap_data)) {
-            phylomap_genes <- toupper(phylomap_data$hgnc_symbol)
+            phylomap_genes <- toupper(phylomap_data$GeneID)
             overlap <- sum(toupper(genes) %in% phylomap_genes)
             stats <- paste0(stats, " | In phylomap: ", overlap, " (", round(overlap/length(genes)*100, 1), "%)")
         }
@@ -367,22 +363,6 @@ server <- function(input, output, session) {
         }, selection = 'single', options = list(pageLength = 10))
     })
     
-    # Find pathways with uploaded genes
-    observeEvent(input$find_pathways_with_genes, {
-        genes <- uploaded_genes()
-        if (length(genes) == 0) {
-            showNotification("Please upload genes first", type = "warning")
-            return()
-        }
-        
-        showNotification("Searching for pathways containing your genes...", type = "message")
-        gene_pathways <- find_pathways_with_genes(genes, values$pathways_list)
-        
-        output$pathway_table <- DT::renderDataTable({
-            gene_pathways
-        }, selection = 'single', options = list(pageLength = 10))
-    })
-    
     # Display pathways by category
     observe({
         req(values$pathways_list, input$pathway_category)
@@ -411,7 +391,7 @@ server <- function(input, output, session) {
         
         # Load pathway graph with HSA gene data
         tryCatch({
-            pathway_data <- parse_kegg_pathway_with_hsa(selected_row$pathway_id, use_cached = TRUE, fetch_hsa_data = TRUE)
+            pathway_data <- parse_kegg_pathway_with_hsa(selected_row$pathway_id, use_cached = TRUE, fetch_hsa_data = FALSE)
             values$pathway_graph <- pathway_data$kegg_data
             values$nodes <- pathway_data$nodes
             values$edges <- pathway_data$edges
@@ -420,7 +400,7 @@ server <- function(input, output, session) {
             pathway_hsa_data(pathway_data$hsa_data)
             
             showNotification(
-                paste("Pathway loaded with", nrow(pathway_data$hsa_data), "gene records!"), 
+                paste("Pathway loaded successfully with", nrow(pathway_data$nodes), "network nodes!"), 
                 type = "message"
             )
             
@@ -433,32 +413,44 @@ server <- function(input, output, session) {
     })
     
     # Display pathway information
-    output$pathway_info <- renderText({
+    output$pathway_info <- renderUI({
         if (!is.null(values$selected_pathway)) {
             coord_info <- ""
             if (!is.null(values$nodes) && !is.null(values$nodes$x)) {
                 coord_count <- sum(!is.na(values$nodes$x))
-                coord_info <- paste0("KEGG Layout Coordinates: ", coord_count, " nodes positioned\n")
+                coord_info <- paste0("KEGG Layout Coordinates: ", coord_count, " nodes positioned<br>")
             }
             
-            paste(
-                "=== PATHWAY INFORMATION ===", "\n",
-                "Pathway ID:", values$selected_pathway$pathway_id, "\n",
-                "Name:", values$selected_pathway$pathway_name, "\n",
-                "Description:", values$selected_pathway$description, "\n\n",
-                "=== NETWORK STATISTICS ===", "\n",
-                "Total Nodes:", ifelse(!is.null(values$nodes), nrow(values$nodes), "Not loaded"), "\n",
-                "Total Edges:", ifelse(!is.null(values$edges), nrow(values$edges), "Not loaded"), "\n",
-                coord_info, "\n",
-                "=== GENE ID INFORMATION ===", "\n",
-                "• Nodes show KEGG Gene IDs prominently", "\n",
-                "• HGNC symbols shown in parentheses when available", "\n",
-                "• Click on nodes to see detailed ID mappings", "\n",
-                "• Use 'KEGG Original Layout' for pathway-specific positioning", "\n\n",
-                "Tip: KEGG IDs are more specific for pathway analysis than gene symbols!"
-            )
+            # Create KEGG pathway URL
+            pathway_id <- values$selected_pathway$pathway_id
+            kegg_url <- paste0("https://www.kegg.jp/pathway/", pathway_id)
+            
+            HTML(paste0(
+                "<div style='font-family: monospace; font-size: 14px; line-height: 1.6;'>",
+                "<strong>=== PATHWAY INFORMATION ===</strong><br>",
+                "<strong>Pathway ID:</strong> ", pathway_id, "<br>",
+                "<strong>Name:</strong> ", values$selected_pathway$pathway_name, "<br>",
+                "<strong>Description:</strong> ", values$selected_pathway$description, "<br>",
+                "<strong>KEGG URL:</strong> <a href='", kegg_url, "' target='_blank' style='color: #007bff;'>", kegg_url, "</a><br><br>",
+                
+                "<strong>=== NETWORK STATISTICS ===</strong><br>",
+                "<strong>Total Nodes:</strong> ", ifelse(!is.null(values$nodes), nrow(values$nodes), "Not loaded"), "<br>",
+                "<strong>Total Edges:</strong> ", ifelse(!is.null(values$edges), nrow(values$edges), "Not loaded"), "<br>",
+                coord_info, "<br>",
+                
+                "<strong>=== GENE ID INFORMATION ===</strong><br>",
+                "• Nodes show KEGG Gene IDs prominently<br>",
+                "• HGNC symbols shown in parentheses when available<br>",
+                "• Click on nodes to see detailed ID mappings<br>",
+                "• Use 'KEGG Original Layout' for pathway-specific positioning<br><br>",
+                
+                "<em style='color: #666;'>Tip: KEGG IDs are more specific for pathway analysis than gene symbols!</em>",
+                "</div>"
+            ))
         } else {
-            "No pathway selected - choose a pathway from the Pathway Explorer tab"
+            HTML("<div style='font-style: italic; color: #666; padding: 20px; text-align: center;'>
+                  No pathway selected - choose a pathway from the Pathway Explorer tab or from enrichment results
+                  </div>")
         }
     })
     
@@ -698,5 +690,359 @@ server <- function(input, output, session) {
             ),
             fontWeight = "bold"
         )
+    })
+    
+    # =========================================================================
+    # ENRICHMENT ANALYSIS FUNCTIONALITY
+    # =========================================================================
+    
+    # Reactive values for enrichment analysis
+    enrichment_results <- reactiveVal(NULL)
+    gene_validation_results <- reactiveVal(NULL)
+    
+    # Gene validation
+    observeEvent(input$validate_genes, {
+        genes <- uploaded_genes()
+        if (length(genes) > 0) {
+            showNotification("Validating genes...", type = "message")
+            
+            validation <- validate_gene_symbols(genes)
+            gene_validation_results(validation)
+            
+            showNotification(
+                paste("Validation complete:", length(validation$valid_genes), "valid,", 
+                      length(validation$invalid_genes), "invalid"),
+                type = "message"
+            )
+        }
+    })
+    
+    # Gene validation output
+    output$gene_validation <- renderText({
+        validation <- gene_validation_results()
+        if (is.null(validation)) {
+            return("Click 'Validate Genes' to check gene symbols")
+        }
+        
+        total_genes <- length(validation$valid_genes) + length(validation$invalid_genes)
+        conversion_rate <- round(validation$conversion_rate * 100, 1)
+        
+        result <- paste0(
+            "GENE VALIDATION RESULTS\n",
+            "========================\n",
+            "Total genes: ", total_genes, "\n",
+            "Valid genes: ", length(validation$valid_genes), "\n",
+            "Invalid genes: ", length(validation$invalid_genes), "\n",
+            "Conversion rate: ", conversion_rate, "%\n"
+        )
+        
+        if (length(validation$invalid_genes) > 0) {
+            result <- paste0(result, "\nInvalid genes:\n", 
+                           paste(validation$invalid_genes, collapse = ", "))
+        }
+        
+        return(result)
+    })
+    
+    # Navigation to Gene Set tab
+    observeEvent(input$goto_geneset, {
+        updateTabItems(session, "tabs", selected = "geneset")
+    })
+    
+    # Navigation to Pathway Explorer tab
+    observeEvent(input$goto_explorer, {
+        updateTabItems(session, "tabs", selected = "explorer")
+    })
+    
+    # Run KEGG enrichment analysis
+    observeEvent(input$run_enrichment, {
+        genes <- uploaded_genes()
+        if (length(genes) == 0) {
+            showNotification("Please load genes first", type = "warning")
+            return()
+        }
+        
+        showNotification("Running KEGG enrichment analysis...", type = "message")
+        
+        # Run enrichment analysis
+        result <- perform_kegg_enrichment(
+            genes, 
+            organism = "hsa",
+            pvalue_cutoff = input$pvalue_cutoff,
+            qvalue_cutoff = input$qvalue_cutoff
+        )
+        
+        enrichment_results(result)
+        
+        if (is.null(result)) {
+            showNotification("No significant pathways found. Try adjusting p-value cutoffs.", 
+                           type = "warning")
+        } else {
+            showNotification(paste("Found", nrow(result@result), "significant pathways!"), 
+                           type = "message")
+        }
+    })
+    
+    # Enrichment completion flag
+    output$enrichment_done <- reactive({
+        !is.null(enrichment_results())
+    })
+    outputOptions(output, "enrichment_done", suspendWhenHidden = FALSE)
+    
+    # Enrichment summary
+    output$enrichment_summary <- renderText({
+        result <- enrichment_results()
+        genes <- uploaded_genes()
+        
+        if (is.null(result) || length(genes) == 0) {
+            return("No enrichment results available")
+        }
+        
+        n_pathways <- nrow(result@result)
+        n_genes <- length(genes)
+        
+        if (n_pathways == 0) {
+            return(paste0(
+                "ENRICHMENT ANALYSIS RESULTS\n",
+                "============================\n",
+                "Input genes: ", n_genes, "\n",
+                "Significant pathways: 0\n\n",
+                "No significantly enriched pathways found.\n",
+                "Try increasing the p-value or q-value cutoffs."
+            ))
+        }
+        
+        top_pathway <- result@result[1, ]
+        min_pval <- min(result@result$p.adjust)
+        max_genes <- max(result@result$Count)
+        
+        summary_text <- paste0(
+            "ENRICHMENT ANALYSIS RESULTS\n",
+            "============================\n",
+            "Input genes: ", n_genes, "\n",
+            "Significant pathways: ", n_pathways, "\n",
+            "Best p-value: ", format(min_pval, scientific = TRUE, digits = 3), "\n",
+            "Max genes per pathway: ", max_genes, "\n\n",
+            "Top pathway:\n",
+            top_pathway$Description, "\n",
+            "P-adjust: ", format(top_pathway$p.adjust, scientific = TRUE, digits = 3), "\n",
+            "Genes: ", top_pathway$Count, "/", 
+            strsplit(top_pathway$BgRatio, "/")[[1]][2]
+        )
+        
+        return(summary_text)
+    })
+    
+    # Enrichment results table
+    output$enrichment_table <- DT::renderDataTable({
+        result <- enrichment_results()
+        genes <- uploaded_genes()
+        
+        if (is.null(result)) {
+            return(data.frame(Message = "No enrichment results available"))
+        }
+        
+        formatted_results <- format_enrichment_results(result, genes)
+        
+        if (nrow(formatted_results) == 0) {
+            return(data.frame(Message = "No significant pathways found"))
+        }
+        
+        DT::datatable(
+            formatted_results,
+            options = list(
+                pageLength = 25,
+                searching = TRUE,
+                scrollX = TRUE,
+                columnDefs = list(
+                    list(width = '80px', targets = c(0)),  # Pathway ID
+                    list(width = '300px', targets = c(1)), # Description
+                    list(width = '80px', targets = c(2, 3, 7)), # Ratios and Count
+                    list(width = '100px', targets = c(4, 5, 6, 8)), # P-values and Fold
+                    list(width = '200px', targets = c(9)) # Genes
+                )
+            ),
+            selection = 'single',  # Enable single row selection
+            rownames = FALSE
+        ) %>%
+        DT::formatSignif(columns = c('pvalue', 'p.adjust', 'qvalue'), digits = 3) %>%
+        DT::formatRound(columns = 'FoldEnrichment', digits = 2) %>%
+        DT::formatStyle(
+            'p.adjust',
+            backgroundColor = DT::styleInterval(
+                cuts = c(0.001, 0.01, 0.05),
+                values = c('#d4edda', '#fff3cd', '#f8d7da', '#ffffff')
+            )
+        ) %>%
+        DT::formatStyle(
+            'FoldEnrichment',
+            backgroundColor = DT::styleInterval(
+                cuts = c(1.5, 2, 5),
+                values = c('#ffffff', '#e7f3ff', '#cce7ff', '#99d6ff')
+            )
+        )
+    })
+    
+    # Enrichment plot
+    output$enrichment_plot <- renderPlotly({
+        result <- enrichment_results()
+        
+        if (is.null(result)) {
+            return(NULL)
+        }
+        
+        plot_data <- create_enrichment_plot_data(result, input$plot_top_n)
+        
+        if (is.null(plot_data) || nrow(plot_data) == 0) {
+            return(NULL)
+        }
+        
+        # Create the plot
+        p <- ggplot(plot_data, aes(x = FoldEnrichment, y = PathwayShort)) +
+            geom_point(aes(size = Count, color = p.adjust), alpha = 0.7) +
+            scale_color_gradient(low = "red", high = "blue", name = "Adj. P-value") +
+            scale_size_continuous(name = "Gene Count", range = c(3, 10)) +
+            labs(
+                title = paste("Top", nrow(plot_data), "Enriched KEGG Pathways"),
+                x = "Fold Enrichment",
+                y = "Pathway"
+            ) +
+            theme_minimal() +
+            theme(
+                axis.text.y = element_text(size = 10),
+                plot.title = element_text(size = 14, hjust = 0.5),
+                legend.position = "right"
+            )
+        
+        ggplotly(p, tooltip = c("x", "y", "size", "colour"), height = 600) %>%
+            layout(margin = list(l = 300))
+    })
+    
+    # Update plot when parameters change
+    observeEvent(input$update_plot, {
+        # The plot will automatically update due to reactive dependencies
+        showNotification("Plot updated", type = "message", duration = 2)
+    })
+    
+    # Download enrichment results
+    output$download_enrichment <- downloadHandler(
+        filename = function() {
+            paste0("kegg_enrichment_results_", Sys.Date(), ".csv")
+        },
+        content = function(file) {
+            result <- enrichment_results()
+            genes <- uploaded_genes()
+            
+            if (!is.null(result)) {
+                formatted_results <- format_enrichment_results(result, genes)
+                write.csv(formatted_results, file, row.names = FALSE)
+            }
+        }
+    )
+    
+    # Show selected pathway info from enrichment table
+    output$selected_enrichment_pathway <- renderText({
+        if (is.null(input$enrichment_table_rows_selected)) {
+            return("")
+        }
+        
+        result <- enrichment_results()
+        if (!is.null(result)) {
+            formatted_results <- format_enrichment_results(result, uploaded_genes())
+            selected_row <- formatted_results[input$enrichment_table_rows_selected, ]
+            
+            paste0(
+                "Pathway: ", selected_row$Pathway, "\n",
+                "Description: ", selected_row$Description, "\n",
+                "P-adjust: ", format(selected_row$p.adjust, scientific = TRUE, digits = 3), "\n",
+                "Genes: ", selected_row$Count, " genes"
+            )
+        }
+    })
+    
+    # Load pathway selected from enrichment results with button
+    observeEvent(input$load_enriched_pathway, {
+        req(input$enrichment_table_rows_selected)
+        
+        result <- enrichment_results()
+        if (!is.null(result)) {
+            formatted_results <- format_enrichment_results(result, uploaded_genes())
+            selected_row <- formatted_results[input$enrichment_table_rows_selected, ]
+            
+            # Extract pathway ID (should be like "hsa04110")
+            pathway_id <- selected_row$Pathway
+            
+            # Show progress notification
+            progress <- Progress$new()
+            progress$set(message = paste("Loading pathway", pathway_id), value = 0.1)
+            on.exit(progress$close())
+            
+            showNotification(paste("Loading enriched pathway:", pathway_id), type = "message")
+            
+            # Create a mock pathway selection row similar to pathway_table format
+            selected_pathway <- data.frame(
+                pathway_id = pathway_id,
+                pathway_name = selected_row$Description,
+                description = selected_row$Description,
+                stringsAsFactors = FALSE
+            )
+            
+            values$selected_pathway <- selected_pathway
+            progress$set(value = 0.3)
+            
+            # Load pathway graph with HSA gene data
+            tryCatch({
+                progress$set(message = "Parsing pathway data...", value = 0.5)
+                pathway_data <- parse_kegg_pathway_with_hsa(pathway_id, use_cached = TRUE, fetch_hsa_data = FALSE)
+                
+                progress$set(message = "Building network...", value = 0.7)
+                values$pathway_graph <- pathway_data$kegg_data
+                values$nodes <- pathway_data$nodes
+                values$edges <- pathway_data$edges
+                
+                # Store HSA gene data
+                pathway_hsa_data(pathway_data$hsa_data)
+                
+                progress$set(message = "Finalizing...", value = 0.9)
+                
+                showNotification(
+                    paste("Enriched pathway loaded successfully with", nrow(pathway_data$nodes), "network nodes!"), 
+                    type = "message"
+                )
+                
+                progress$set(value = 1.0)
+                
+                # Switch to network tab
+                updateTabItems(session, "tabs", "network")
+                
+            }, error = function(e) {
+                showNotification(paste("Error loading enriched pathway:", e$message), type = "warning")
+            })
+        }
+    })
+    
+    # Remove the old row selection observer since we now use a button
+    # observeEvent(input$enrichment_table_rows_selected, { ... }) - REMOVED
+    
+    # Pathway header for network visualization
+    output$pathway_header <- renderUI({
+        if (!is.null(values$selected_pathway)) {
+            pathway_id <- values$selected_pathway$pathway_id
+            kegg_url <- paste0("https://www.kegg.jp/pathway/", pathway_id)
+            
+            HTML(paste0(
+                "<div style='text-align: center;'>",
+                "<h3 style='margin: 5px 0; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);'>",
+                values$selected_pathway$pathway_name,
+                "</h3>",
+                "<p style='margin: 5px 0; font-size: 16px; color: #e8f4f8;'>",
+                "<strong>Pathway ID:</strong> ", pathway_id, " | ",
+                "<a href='", kegg_url, "' target='_blank' style='color: #fff; text-decoration: underline;'>",
+                "View on KEGG Database ↗",
+                "</a>",
+                "</p>",
+                "</div>"
+            ))
+        }
     })
 }
