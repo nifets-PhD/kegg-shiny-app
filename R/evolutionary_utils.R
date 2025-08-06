@@ -353,10 +353,10 @@ create_gene_heatmap_plot <- function(bulk_phyloset, selected_genes = NULL, title
                 p <- myTAI::plot_gene_heatmap(bulk_phyloset, genes = valid_selected_genes, show_gene_ids=TRUE, cluster_rows=TRUE, std=FALSE)
             } else {
                 cat("None of the selected genes are present in the phyloset. Using all genes for heatmap.\n")
-                p <- myTAI::plot_gene_heatmap(bulk_phyloset)
+                p <- myTAI::plot_gene_heatmap(bulk_phyloset, cluster_rows=TRUE, std=FALSE, show_gene_ids=TRUE, top_p=0.001)
             }
         } else {
-            p <- myTAI::plot_gene_heatmap(bulk_phyloset)
+            p <- myTAI::plot_gene_heatmap(bulk_phyloset, cluster_rows=TRUE, std=FALSE, show_gene_ids=TRUE, top_p=0.001)
         }
         p <- p + ggplot2::labs(title = title)
         return(p)

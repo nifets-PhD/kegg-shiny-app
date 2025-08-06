@@ -1602,11 +1602,6 @@ server <- function(input, output, session) {
     current_evolution_plot <- reactiveVal(NULL)
     evolution_plot_type <- reactiveVal("")
     
-    # Reactive values for gene selection in evolutionary plots
-    selected_evolution_genes <- reactiveVal(NULL)
-    evolution_gene_colors <- reactiveVal(NULL)
-    evolution_selection_message <- reactiveVal("")
-    
     # Load example expression data
     observeEvent(input$load_example_expr, {
         tryCatch({
@@ -1678,233 +1673,6 @@ server <- function(input, output, session) {
         }, error = function(e) {
             showNotification(paste("Error creating PhyloExpressionSet:", e$message), type = "error")
         })
-    })
-    
-    # Gene selection logic for evolutionary plots
-    observe({
-        req(input$gene_selection_type)
-        
-        tryCatch({
-            selection_type <- input$gene_selection_type
-            genes <- NULL
-            colors <- NULL
-            message <- ""
-            
-            if (selection_type == "all") {
-                message <- "Using all genes in the dataset"
-                
-            } else if (selection_type == "user_genes") {
-                user_entrez_ids <- internal_genes()  # Always Entrez IDs internally
-                
-                if (length(user_entrez_ids) > 0) {
-                    # Convert Entrez IDs to the expression data's expected format
-                    expr_gene_id_type <- input$expr_gene_id_type
-                    
-                    if (expr_gene_id_type == "entrez") {
-                        # Expression data expects Entrez - perfect match
-                        genes <- user_entrez_ids
-                        message <- paste("Using", length(genes), "genes from your uploaded gene set (Entrez IDs)")
-                    } else if (expr_gene_id_type == "symbol") {
-                        # Expression data expects symbols - convert from our internal Entrez
-                        if (!is.null(comprehensive_mapping)) {
-                            gene_symbols <- entrez_to_symbols(user_entrez_ids, comprehensive_mapping)
-                            genes <- as.character(gene_symbols)
-                            message <- paste("Converted", length(user_entrez_ids), "Entrez IDs to", length(genes), "gene symbols for expression analysis")
-                        } else {
-                            genes <- user_entrez_ids  # Fallback 
-                            message <- "Warning: Could not convert to symbols - using Entrez IDs (may cause matching issues)"
-                        }
-                    } else {
-                        # Other expression data formats - use Entrez as fallback
-                        genes <- user_entrez_ids
-                        message <- paste("Using", length(genes), "Entrez IDs for", expr_gene_id_type, "expression analysis (may cause matching issues)")
-                    }
-                } else {
-                    message <- "No genes uploaded in Gene Set tab. Please upload genes first."
-                }
-                
-            } else if (selection_type == "pathway_genes") {
-                if (!is.null(values$nodes) && nrow(values$nodes) > 0) {
-                    # Extract pathway genes as Entrez IDs (internal standard)
-                    pathway_entrez_ids <- extract_pathway_entrez_ids(values$nodes, comprehensive_mapping)
-                    
-                    if (length(pathway_entrez_ids) > 0) {
-                        expr_gene_id_type <- input$expr_gene_id_type
-                        
-                        if (expr_gene_id_type == "entrez") {
-                            genes <- pathway_entrez_ids
-                            message <- paste("Using", length(genes), "genes from the selected pathway (Entrez IDs)")
-                        } else if (expr_gene_id_type == "symbol") {
-                            gene_symbols <- entrez_to_symbols(pathway_entrez_ids, comprehensive_mapping)
-                            genes <- as.character(gene_symbols)
-                            message <- paste("Using", length(genes), "genes from the selected pathway (converted to symbols)")
-                        } else {
-                            genes <- pathway_entrez_ids  # Fallback
-                            message <- paste("Using", length(genes), "pathway genes as Entrez IDs for", expr_gene_id_type, "analysis")
-                        }
-                    } else {
-                        message <- "No genes extracted from the selected pathway"
-                    }
-                } else {
-                    message <- "No pathway loaded in Network tab. Please load a pathway first."
-                }
-                
-            } else if (selection_type == "network_interactions") {
-                req(input$selected_network_gene)
-                
-                if (!is.null(values$nodes) && !is.null(values$edges) && 
-                    nrow(values$nodes) > 0 && nrow(values$edges) > 0) {
-                    
-                    selected_gene <- trimws(input$selected_network_gene)
-                    if (nchar(selected_gene) > 0) {
-                        
-                        interaction_result <- get_interacting_genes(
-                            selected_gene = selected_gene,
-                            pathway_edges = values$edges,
-                            pathway_nodes = values$nodes,
-                            gene_id_type = input$expr_gene_id_type
-                        )
-                        
-                        if (length(interaction_result$interacting_genes) > 0) {
-                            # Include the selected gene plus its interactions
-                            genes <- c(selected_gene, interaction_result$interacting_genes)
-                            colors <- interaction_result$interaction_colors
-                            message <- interaction_result$message
-                        } else {
-                            message <- interaction_result$message
-                        }
-                    } else {
-                        message <- "Please enter a gene symbol"
-                    }
-                } else {
-                    message <- "No pathway network loaded. Please load a pathway first."
-                }
-            }
-            
-            # Update reactive values
-            selected_evolution_genes(genes)
-            evolution_gene_colors(colors)
-            evolution_selection_message(message)
-            
-        }, error = function(e) {
-            evolution_selection_message(paste("Error in gene selection:", e$message))
-        })
-    })
-    
-    # Plotting functions for different visualization types
-    
-    # TAI Signature plot
-    observeEvent(input$plot_tai_signature, {
-        req(phyloexpression_set())
-        
-        tryCatch({
-            p <- create_tai_signature_plot(phyloexpression_set()$phyloset, 
-                                         title = "Transcriptome Age Index (TAI) Signature")
-            current_evolution_plot(p)
-            evolution_plot_type("TAI Signature")
-        }, error = function(e) {
-            showNotification(paste("Error creating TAI signature plot:", e$message), type = "error")
-        })
-    })
-    
-    # Distribution of strata plot
-    observeEvent(input$plot_distribution_strata, {
-        req(phyloexpression_set())
-        
-        tryCatch({
-            selected_genes <- selected_evolution_genes()
-            p <- create_distribution_strata_plot(phyloexpression_set()$phyloset,
-                                               selected_genes = selected_genes,
-                                               title = "Distribution of Phylostrata")
-            current_evolution_plot(p)
-            evolution_plot_type("Distribution of Phylostrata")
-        }, error = function(e) {
-            showNotification(paste("Error creating distribution strata plot:", e$message), type = "error")
-        })
-    })
-    
-    # Gene heatmap plot
-    observeEvent(input$plot_gene_heatmap, {
-        req(phyloexpression_set())
-        
-        tryCatch({
-            selected_genes <- selected_evolution_genes()
-            p <- create_gene_heatmap_plot(phyloexpression_set()$phyloset,
-                                        selected_genes = selected_genes,
-                                        title = "Gene Expression Heatmap by Phylostratum")
-            current_evolution_plot(p)
-            evolution_plot_type("Gene Expression Heatmap")
-        }, error = function(e) {
-            showNotification(paste("Error creating gene heatmap plot:", e$message), type = "error")
-        })
-    })
-    
-    # Contribution plot
-    observeEvent(input$plot_contribution, {
-        req(phyloexpression_set())
-        
-        tryCatch({
-            p <- create_contribution_plot(phyloexpression_set()$phyloset,
-                                        title = "Phylostratum Contribution to TAI")
-            current_evolution_plot(p)
-            evolution_plot_type("Phylostratum Contribution")
-        }, error = function(e) {
-            showNotification(paste("Error creating contribution plot:", e$message), type = "error")
-        })
-    })
-    
-    # Gene space plot
-    observeEvent(input$plot_gene_space, {
-        req(phyloexpression_set())
-        
-        tryCatch({
-            p <- create_gene_space_plot(phyloexpression_set()$phyloset,
-                                      title = "Gene Space Analysis (PCA)")
-            current_evolution_plot(p)
-            evolution_plot_type("Gene Space Analysis")
-        }, error = function(e) {
-            showNotification(paste("Error creating gene space plot:", e$message), type = "error")
-        })
-    })
-    
-    # Sample space plot
-    observeEvent(input$plot_sample_space, {
-        req(phyloexpression_set())
-        
-        tryCatch({
-            p <- create_sample_space_plot(phyloexpression_set()$phyloset,
-                                        title = "Sample Space Analysis (PCA)")
-            current_evolution_plot(p)
-            evolution_plot_type("Sample Space Analysis")
-        }, error = function(e) {
-            showNotification(paste("Error creating sample space plot:", e$message), type = "error")
-        })
-    })
-    
-    # Gene profiles plot
-    observeEvent(input$plot_gene_profiles, {
-        req(phyloexpression_set())
-        
-        tryCatch({
-            selected_genes <- selected_evolution_genes()
-            interaction_colors <- evolution_gene_colors()
-            
-            p <- create_gene_profiles_plot(phyloexpression_set()$phyloset,
-                                         selected_genes = selected_genes,
-                                         interaction_colors = interaction_colors,
-                                         title = "Gene Expression Profiles by Phylostratum")
-            current_evolution_plot(p)
-            evolution_plot_type("Gene Expression Profiles")
-        }, error = function(e) {
-            showNotification(paste("Error creating gene profiles plot:", e$message), type = "error")
-        })
-    })
-    
-    # Clear evolution plot
-    observeEvent(input$clear_evolution_plot, {
-        current_evolution_plot(NULL)
-        evolution_plot_type("")
-        showNotification("Plot cleared.", type = "message")
     })
     
     # Reactive outputs for evolutionary transcriptomics tab
@@ -2081,13 +1849,140 @@ server <- function(input, output, session) {
         )
     })
     
-    # PhyloExpressionSet summary
-    output$phyloset_summary <- renderText({
+    # Expression matrix preview (first 50 rows sorted by mean expression)
+    output$expression_preview <- DT::renderDataTable({
+        req(expression_data())
+        data <- expression_data()
+        
+        # Calculate mean expression for each gene (excluding the gene ID column)
+        expression_cols <- names(data)[-1]  # All columns except the first (gene ID)
+        data$mean_expression <- rowMeans(data[expression_cols], na.rm = TRUE)
+        
+        # Sort by mean expression (descending) and show top 50
+        data_sorted <- data[order(data$mean_expression, decreasing = TRUE), ]
+        preview_data <- head(data_sorted, 50)
+        
+        # Remove the temporary mean_expression column for display
+        preview_data$mean_expression <- NULL
+        
+        DT::datatable(
+            preview_data,
+            options = list(
+                scrollX = TRUE,
+                pageLength = 50,
+                searching = FALSE,
+                lengthChange = TRUE,
+                info = TRUE,
+                paging = TRUE,
+                ordering = TRUE,
+                dom = 'ltp',
+                scrollY = "300px",
+                autoWidth = TRUE,
+                lengthMenu = list(c(10, 25, 50, -1), c("10", "25", "50", "All")),
+                columnDefs = list(
+                    list(className = 'dt-center', targets = "_all")
+                ),
+                initComplete = DT::JS(
+                    "function(settings, json) {",
+                    "$(this.api().table().header()).css({'font-size': '11px', 'padding': '4px'});",
+                    "$(this.api().table().body()).css({'font-size': '10px', 'padding': '2px'});",
+                    "$(this.api().table().container()).css({'margin': '0px', 'padding': '0px'});",
+                    "}"
+                )
+            ),
+            rownames = FALSE,
+            class = 'compact stripe hover',
+            caption = "Top 50 genes sorted by mean expression (highest first)"
+        ) %>%
+        DT::formatStyle(columns = 1:ncol(preview_data), fontSize = '10px') %>%
+        DT::formatRound(columns = 2:ncol(preview_data), digits = 3)
+    }, server = FALSE)
+    
+    # Toggle button text for expression preview
+    observeEvent(input$toggle_expression_preview, {
+        if (input$toggle_expression_preview %% 2 == 1) {
+            updateActionButton(session, "toggle_expression_preview", 
+                             label = "Hide Expression Matrix Preview",
+                             icon = icon("eye-slash"))
+        } else {
+            updateActionButton(session, "toggle_expression_preview", 
+                             label = "Show Expression Matrix Preview (Top 50 genes)",
+                             icon = icon("eye"))
+        }
+    })
+    
+    # Automatic plot generation when phyloset is created
+    
+    # TAI Signature plot (automatic)
+    output$tai_signature_plot <- renderPlot({
+        req(phyloexpression_set())
+        tryCatch({
+            create_tai_signature_plot(phyloexpression_set()$phyloset, 
+                                    title = NULL)
+        }, error = function(e) {
+            ggplot() + 
+                geom_text(aes(x = 0.5, y = 0.5), label = paste("Error:", e$message), size = 5) +
+                xlim(0, 1) + ylim(0, 1) + theme_void()
+        })
+    })
+    
+    # Distribution of phylostrata plot (automatic)
+    output$phylostrata_distribution_plot <- renderPlot({
+        req(phyloexpression_set())
+        tryCatch({
+            create_distribution_strata_plot(phyloexpression_set()$phyloset,
+                                          title = NULL)
+        }, error = function(e) {
+            ggplot() + 
+                geom_text(aes(x = 0.5, y = 0.5), label = paste("Error:", e$message), size = 5) +
+                xlim(0, 1) + ylim(0, 1) + theme_void()
+        })
+    })
+    
+    # Sample space plot (automatic)
+    output$sample_space_plot <- renderPlot({
+        req(phyloexpression_set())
+        tryCatch({
+            create_sample_space_plot(phyloexpression_set()$phyloset,
+                                   title = NULL)
+        }, error = function(e) {
+            ggplot() + 
+                geom_text(aes(x = 0.5, y = 0.5), label = paste("Error:", e$message), size = 5) +
+                xlim(0, 1) + ylim(0, 1) + theme_void()
+        })
+    })
+    
+    # Gene heatmap plot (automatic)
+    output$gene_heatmap_plot <- renderPlot({
+        req(phyloexpression_set())
+        tryCatch({
+            create_gene_heatmap_plot(phyloexpression_set()$phyloset,
+                                   title = NULL)
+        }, error = function(e) {
+            ggplot() + 
+                geom_text(aes(x = 0.5, y = 0.5), label = paste("Error:", e$message), size = 5) +
+                xlim(0, 1) + ylim(0, 1) + theme_void()
+        })
+    })
+
+    # PhyloExpressionSet mapping information
+    output$phyloset_mapping_info <- renderText({
         req(phyloexpression_set())
         
+        data <- expression_data()
         stats <- phyloexpression_set()$mapping_stats
-        summary_lines <- format_mapping_summary(stats)
-        paste(summary_lines, collapse = "\n")
+        
+        lines <- c(
+            paste("✓ PhyloExpressionSet Successfully Created"),
+            paste(""),
+            paste("Dataset Information:"),
+            paste("  • Total genes:", stats$n_total),
+            paste("  • Genes mapped to phylostrata:", stats$n_mapped, paste0("(", stats$mapping_rate, "%)")),
+            paste("  • Total samples:", ncol(data) - 1),
+            paste("  • Sample names:", paste(names(data)[-1], collapse = ", "))
+        )
+        
+        paste(lines, collapse = "\n")
     })
     
     # Evolution plot title
@@ -2160,49 +2055,15 @@ server <- function(input, output, session) {
         }
     })
     
-    # Gene selection status
-    output$evolution_selection_status <- renderText({
-        message <- evolution_selection_message()
-        selected_genes <- selected_evolution_genes()
-        
-        if (message == "" && is.null(selected_genes)) {
-            return("Preparing gene selection...")
-        }
-        
-        result <- message
-        
-        if (!is.null(selected_genes) && length(selected_genes) > 0) {
-            result <- paste0(result, "\n\nSelected genes (showing first 10):\n")
-            genes_to_show <- head(selected_genes, 10)
-            result <- paste0(result, paste(genes_to_show, collapse = ", "))
-            
-            if (length(selected_genes) > 10) {
-                result <- paste0(result, "\n... and ", length(selected_genes) - 10, " more genes")
-            }
-        }
-        
-        return(result)
-    })
+    # Gene selection status - DISABLED for streamlined UI
+    # output$evolution_selection_status <- renderText({
+    #     # This was used for the old manual gene selection interface
+    # })
     
-    # Dataset information
-    output$evolution_dataset_info <- renderText({
-        req(expression_data(), phyloexpression_set())
-        
-        data <- expression_data()
-        stats <- phyloexpression_set()$mapping_stats
-        
-        paste(
-            paste("Original genes:", stats$n_total),
-            paste("Mapped to phylostrata:", stats$n_mapped),
-            paste("Mapping success:", stats$mapping_rate, "%"),
-            paste("Phylostrata represented:", length(stats$strata_distribution)),
-            "",
-            "Sample information:",
-            paste("Total samples:", ncol(data) - 1),
-            paste("Sample names:", paste(names(data)[-1], collapse = ", ")),
-            sep = "\n"
-        )
-    })
+    # Dataset information - DISABLED for streamlined UI  
+    # output$evolution_dataset_info <- renderText({
+    #     # This was used for the old dataset info card
+    # })
     
     # Download evolution plot
     output$download_evolution_plot <- downloadHandler(

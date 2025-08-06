@@ -416,7 +416,7 @@ ui <- dashboardPage(
                 fluidRow(
                     box(
                         title = "Expression Data Upload", status = "primary", solidHeader = TRUE,
-                        width = 6, collapsible = TRUE,
+                        width = 6, collapsible = TRUE, height = "auto", style = "min-height: 650px;",
                         
                         h4("Upload Gene Expression Dataset"),
                         
@@ -448,13 +448,26 @@ ui <- dashboardPage(
                             div(style = "background: #d4edda; padding: 10px; border-radius: 5px; border-left: 4px solid #28a745;",
                                 h5(style = "margin: 0; color: #155724;", "✓ Expression Data Loaded"),
                                 verbatimTextOutput("expression_summary", placeholder = FALSE)
+                            ),
+                            
+                            br(),
+                            actionButton("toggle_expression_preview", 
+                                       "Show Expression Matrix Preview (Top 50 genes)", 
+                                       class = "btn-info btn-sm",
+                                       icon = icon("eye")),
+                            br(), br(),
+                            conditionalPanel(
+                                condition = "input.toggle_expression_preview % 2 == 1",
+                                div(style = "margin-bottom: 15px;",
+                                    DT::dataTableOutput("expression_preview", height = "350px")
+                                )
                             )
                         )
                     ),
                     
                     box(
                         title = "Phylostratum Mapping", status = "info", solidHeader = TRUE,
-                        width = 6, collapsible = TRUE,
+                        width = 6, collapsible = TRUE, height = "auto", style = "min-height: 650px;",
                         
                         conditionalPanel(
                             condition = "output.expression_loaded",
@@ -471,13 +484,14 @@ ui <- dashboardPage(
                             br(),
                             actionButton("create_phyloset", "Create PhyloExpressionSet", 
                                        class = "btn-success", icon = icon("play")),
-                            
-                            br(), br(),
+                                       
+                            # Show mapping results after phyloset creation
                             conditionalPanel(
                                 condition = "output.phyloset_created",
-                                div(style = "background: #d1ecf1; padding: 10px; border-radius: 5px; border-left: 4px solid #17a2b8;",
-                                    h5(style = "margin: 0; color: #0c5460;", "✓ PhyloExpressionSet Created"),
-                                    verbatimTextOutput("phyloset_summary", placeholder = FALSE)
+                                br(),
+                                div(style = "background: #d1ecf1; padding: 15px; border-radius: 5px; border-left: 4px solid #17a2b8;",
+                                    h5(style = "margin-top: 0; color: #0c5460;", "✓ PhyloExpressionSet Created"),
+                                    verbatimTextOutput("phyloset_mapping_info", placeholder = FALSE)
                                 )
                             )
                         ),
@@ -494,190 +508,37 @@ ui <- dashboardPage(
                     )
                 ),
                 
-                # Visualization Options and Plots
+                # Evolutionary Transcriptomics Visualizations
                 fluidRow(
                     conditionalPanel(
                         condition = "output.phyloset_created",
                         box(
-                            title = "Evolutionary Transcriptomics Visualizations", 
-                            status = "success", solidHeader = TRUE,
+                            title = "Evolutionary Transcriptomics Analysis", status = "primary", solidHeader = TRUE,
                             width = 12, collapsible = TRUE,
                             
-                            h4("Select Visualization Type"),
-                            p("Explore different aspects of transcriptomic age in your dataset:"),
-                            
-                            # Gene Selection Options
-                            div(style = "background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #dee2e6;",
-                                h5(style = "margin-top: 0; color: #495057;", "🎯 Gene Selection Options"),
-                                p(style = "margin-bottom: 15px; color: #6c757d; font-size: 14px;", 
-                                  "Choose which genes to highlight in your plots:"),
-                                
-                                fluidRow(
-                                    column(6,
-                                        radioButtons("gene_selection_type", NULL,
-                                                   choices = list(
-                                                       "All genes (default)" = "all",
-                                                       "My uploaded gene set" = "user_genes",
-                                                       "Genes from selected pathway" = "pathway_genes",
-                                                       "Selected network node + interactions" = "network_interactions"
-                                                   ),
-                                                   selected = "all",
-                                                   inline = FALSE)
-                                    ),
-                                    column(6,
-                                        # Conditional inputs based on selection type
-                                        conditionalPanel(
-                                            condition = "input.gene_selection_type == 'network_interactions'",
-                                            textInput("selected_network_gene", "Enter Gene Symbol:",
-                                                    placeholder = "e.g., TP53, EGFR, BRCA1"),
-                                            helpText("Must match a gene in the current pathway network")
-                                        ),
-                                        
-                                        conditionalPanel(
-                                            condition = "input.gene_selection_type != 'all'",
-                                            div(style = "margin-top: 10px;",
-                                                span(style = "font-size: 12px; color: #6c757d;",
-                                                     conditionalPanel(
-                                                         condition = "input.gene_selection_type == 'user_genes'",
-                                                         "Uses genes from your Gene Set tab"
-                                                     ),
-                                                     conditionalPanel(
-                                                         condition = "input.gene_selection_type == 'pathway_genes'",
-                                                         "Uses genes from the pathway loaded in Network tab"
-                                                     ),
-                                                     conditionalPanel(
-                                                         condition = "input.gene_selection_type == 'network_interactions'",
-                                                         "Colors genes by interaction type with selected node"
-                                                     )
-                                                )
-                                            )
-                                        )
-                                    )
+                            fluidRow(
+                                column(6,
+                                    h5("TAI Signature", style = "text-align: center; margin-bottom: 15px;"),
+                                    plotOutput("tai_signature_plot", height = "350px")
+                                ),
+                                column(6,
+                                    h5("Distribution of Phylostrata", style = "text-align: center; margin-bottom: 15px;"),
+                                    plotOutput("phylostrata_distribution_plot", height = "350px")
                                 )
                             ),
                             
-                            # Gene selection status
-                            conditionalPanel(
-                                condition = "input.gene_selection_type != 'all'",
-                                div(style = "background: #e9ecef; padding: 10px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid #6c757d;",
-                                    h6(style = "margin: 0; color: #495057;", "🔍 Gene Selection Status"),
-                                    verbatimTextOutput("evolution_selection_status", placeholder = FALSE)
-                                )
-                            ),
+                            br(),
                             
                             fluidRow(
-                                column(4,
-                                    h5("Primary Analyses"),
-                                    actionButton("plot_tai_signature", "TAI Signature", 
-                                               class = "btn-primary btn-block", 
-                                               icon = icon("line-chart"),
-                                               style = "margin-bottom: 5px;"),
-                                    helpText("Transcriptome Age Index over developmental stages/conditions"),
-                                    
-                                    actionButton("plot_distribution_strata", "Distribution of Phylostrata", 
-                                               class = "btn-primary btn-block",
-                                               icon = icon("bar-chart"),
-                                               style = "margin-bottom: 5px;"),
-                                    helpText("Distribution of genes across evolutionary ages")
-                                ),
-                                column(4,
-                                    h5("Expression Patterns"),
-                                    actionButton("plot_gene_heatmap", "Gene Expression Heatmap", 
-                                               class = "btn-warning btn-block",
-                                               icon = icon("th"),
-                                               style = "margin-bottom: 5px;"),
-                                    helpText("Heatmap of gene expression by phylostratum"),
-                                    
-                                    actionButton("plot_contribution", "Phylostratum Contribution", 
-                                               class = "btn-warning btn-block",
-                                               icon = icon("pie-chart"),
-                                               style = "margin-bottom: 5px;"),
-                                    helpText("Contribution of each phylostratum to overall TAI")
-                                ),
-                                column(4,
-                                    h5("Advanced Analyses"),
-                                    actionButton("plot_gene_space", "Gene Space", 
-                                               class = "btn-info btn-block",
-                                               icon = icon("project-diagram"),
-                                               style = "margin-bottom: 5px;"),
-                                    helpText("PCA of genes coloured by phylostratum"),
-                                    
-                                    actionButton("plot_sample_space", "Sample Space", 
-                                               class = "btn-info btn-block",
-                                               icon = icon("object-group"),
-                                               style = "margin-bottom: 5px;"),
-                                    helpText("PCA of samples with phylostratum information"),
-                                    
-                                    actionButton("plot_gene_profiles", "Gene Expression Profiles", 
-                                               class = "btn-info btn-block",
-                                               icon = icon("line"),
-                                               style = "margin-bottom: 5px;"),
-                                    helpText("Individual gene expression profiles by phylostratum")
-                                )
-                            )
-                        )
-                    )
-                ),
-                
-                # Plot Display Area
-                fluidRow(
-                    conditionalPanel(
-                        condition = "output.evolution_plot_ready",
-                        box(
-                            title = NULL, status = "success", solidHeader = TRUE,
-                            width = 12, collapsible = TRUE,
-                            
-                            # Dynamic title
-                            htmlOutput("evolution_plot_title"),
-                            
-                            # Plot output
-                            plotOutput("evolution_plot", height = "600px"),
-                            
-                            br(),
-                            fluidRow(
                                 column(6,
-                                    downloadButton("download_evolution_plot", "Download Plot", 
-                                                 class = "btn-primary", icon = icon("download"))
+                                    h5("Sample Space Analysis", style = "text-align: center; margin-bottom: 15px;"),
+                                    plotOutput("sample_space_plot", height = "350px")
                                 ),
                                 column(6,
-                                    div(style = "text-align: right;",
-                                        actionButton("clear_evolution_plot", "Clear Plot", 
-                                                   class = "btn-secondary", icon = icon("eraser"))
-                                    )
+                                    h5("Gene Expression Heatmap", style = "text-align: center; margin-bottom: 15px;"),
+                                    plotOutput("gene_heatmap_plot", height = "350px")
                                 )
                             )
-                        )
-                    )
-                ),
-                
-                # Data Summary and Legend
-                fluidRow(
-                    conditionalPanel(
-                        condition = "output.phyloset_created",
-                        box(
-                            title = "Phylostratum Legend", status = "warning", solidHeader = TRUE,
-                            width = 6, collapsible = TRUE, collapsed = TRUE,
-                            
-                            h5("Evolutionary Timeline"),
-                            p("Each phylostratum represents a major evolutionary transition:"),
-                            div(style = "max-height: 400px; overflow-y: auto;",
-                                DT::dataTableOutput("evolution_strata_legend")
-                            )
-                        ),
-                        
-                        box(
-                            title = "Dataset Information", status = "info", solidHeader = TRUE,
-                            width = 6, collapsible = TRUE, collapsed = TRUE,
-                            
-                            h5("Current Dataset"),
-                            verbatimTextOutput("evolution_dataset_info"),
-                            
-                            br(),
-                            h5("Analysis Notes"),
-                            p("• TAI (Transcriptome Age Index) measures the relative evolutionary age of gene expression"),
-                            p("• Lower TAI = predominantly ancient genes expressed"),  
-                            p("• Higher TAI = more evolutionarily recent genes expressed"),
-                            p("• Phylostrata range from 1 (most ancient) to 28 (Homo sapiens specific)")
                         )
                     )
                 )
