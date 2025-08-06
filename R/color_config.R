@@ -6,17 +6,21 @@
 # Custom CSS Colors for Fine Control
 CSS_COLORS <- list(
   # Purple variations
-  primary_purple = "#7B68EE",      # Medium slate blue
+  primary_purple = "#332660ff",      # Medium slate blue
+  dark_purple3 = "#332660ff",        # Plum
   light_purple = "#332660ff",        # Plum
   dark_purple = "#1c172fff",         # Rebecca purple
   dark_purple2 = "#2a243fff",
   lavender = "#E6E6FA",            # Light lavender
   
   # Green variations  
-  primary_green = "#28A745",       # Bootstrap success green
+  primary_green = "#3f5b4c",       # Bootstrap success green
   light_green = "#D4EDDA",         # Light green background
-  dark_green = "#155724",          # Dark green text
-  mint_green = "#98FB98",          # Pale green
+  dark_green = "#769789",          # Dark green text
+  mint_green = "#010201",          # Pale green
+
+  primary_red= "#ffba7e",
+  dark_red = "#f38a2e",
   
   # Neutral colors
   white = "#FFFFFF",
@@ -65,7 +69,7 @@ generate_custom_css <- function() {
     }
     
     .sidebar-menu > li.active > a {
-      background-color: ", CSS_COLORS$light_purple, " !important;
+      background-color: ", CSS_COLORS$dark_purple3, " !important;
       border-left-color: ", CSS_COLORS$light_purple, " !important;
     }
     
@@ -91,22 +95,22 @@ generate_custom_css <- function() {
     
     /* Success cards to green */
     .box.box-solid.box-success > .box-header {
-      background: ", CSS_COLORS$primary_green, " !important;
-      background-color: ", CSS_COLORS$primary_green, " !important;
+      background: ", CSS_COLORS$light_purple, " !important;
+      background-color: ", CSS_COLORS$light_purple, " !important;
     }
     
     .box.box-solid.box-success {
-      border: 1px solid ", CSS_COLORS$primary_green, " !important;
+      border: 1px solid ", CSS_COLORS$light_purple, " !important;
     }
     
     .box.box-success > .box-header {
-      background: ", CSS_COLORS$primary_green, " !important;
-      background-color: ", CSS_COLORS$primary_green, " !important;
+      background: ", CSS_COLORS$light_purple, " !important;
+      background-color: ", CSS_COLORS$light_purple, " !important;
       color: ", CSS_COLORS$white, " !important;
     }
     
     .box.box-success {
-      border-top-color: ", CSS_COLORS$primary_green, " !important;
+      border-top-color: ", CSS_COLORS$light_purple, " !important;
     }
     
     /* Info cards to light purple instead of cyan */
@@ -131,33 +135,33 @@ generate_custom_css <- function() {
     
     /* Button customizations */
     .btn-primary {
-      background-color: ", CSS_COLORS$primary_purple, " !important;
-      border-color: ", CSS_COLORS$primary_purple, " !important;
+      background-color: ", CSS_COLORS$light_green, " !important;
+      border-color: ", CSS_COLORS$light_green, " !important;
     }
     
     .btn-primary:hover, .btn-primary:focus, .btn-primary:active {
-      background-color: ", CSS_COLORS$dark_purple, " !important;
-      border-color: ", CSS_COLORS$dark_purple, " !important;
-    }
-    
-    .btn-success {
-      background-color: ", CSS_COLORS$primary_green, " !important;
-      border-color: ", CSS_COLORS$primary_green, " !important;
-    }
-    
-    .btn-success:hover, .btn-success:focus, .btn-success:active {
       background-color: ", CSS_COLORS$dark_green, " !important;
       border-color: ", CSS_COLORS$dark_green, " !important;
     }
     
+    .btn-success {
+      background-color: ", CSS_COLORS$primary_red, " !important;
+      border-color: ", CSS_COLORS$primary_red, " !important;
+    }
+    
+    .btn-success:hover, .btn-success:focus, .btn-success:active {
+      background-color: ", CSS_COLORS$dark_red, " !important;
+      border-color: ", CSS_COLORS$primary_red, " !important;
+    }
+    
     .btn-info {
-      background-color: ", CSS_COLORS$light_purple, " !important;
-      border-color: ", CSS_COLORS$light_purple, " !important;
+      background-color: ", CSS_COLORS$light_green, " !important;
+      border-color: ", CSS_COLORS$light_green, " !important;
     }
     
     .btn-info:hover, .btn-info:focus, .btn-info:active {
-      background-color: ", CSS_COLORS$primary_purple, " !important;
-      border-color: ", CSS_COLORS$primary_purple, " !important;
+      background-color: ", CSS_COLORS$dark_green, " !important;
+      border-color: ", CSS_COLORS$dark_green, " !important;
     }
     
     /* Alert/notification backgrounds */

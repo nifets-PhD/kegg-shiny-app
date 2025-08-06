@@ -4,7 +4,7 @@ source("R/color_config.R")
 # Define UI
 ui <- dashboardPage(
     skin = "purple",  # Use purple skin
-    dashboardHeader(title = "Evo KEGG Pathways"),
+    dashboardHeader(title = "Evolutionary Pathways - Powered by myTAI"),
     
     dashboardSidebar(
         sidebarMenu(id = "tabs",
@@ -189,7 +189,7 @@ ui <- dashboardPage(
                     conditionalPanel(
                         condition = "output.enrichment_done",
                         box(
-                            title = "Detailed Enrichment Results", status = "warning", solidHeader = TRUE,
+                            title = "Detailed Enrichment Results", status = "info", solidHeader = TRUE,
                             width = 12, collapsible = TRUE,
                             
                             DT::dataTableOutput("enrichment_table"),
@@ -326,13 +326,13 @@ ui <- dashboardPage(
                             conditionalPanel(
                                 condition = "!output.phyloset_created",
                                 div(style = "text-align: center; color: #666; padding: 40px 20px;",
-                                    icon("dna", style = "font-size: 48px; color: #17a2b8;"),
+                                    icon("dna", style = "font-size: 48px; color: #ccc;"),
                                     br(), br(),
                                     h4("No Expression Dataset Loaded"),
                                     p("Load an expression dataset to view gene expression profiles colored by evolutionary age."),
                                     br(),
                                     actionButton("goto_evolution_from_network", "Go to Your Expression Data", 
-                                               class = "btn-info", icon = icon("dna"))
+                                               class = "btn-success", icon = icon("dna"))
                                 )
                             ),
                             
@@ -340,7 +340,7 @@ ui <- dashboardPage(
                             conditionalPanel(
                                 condition = "output.phyloset_created && !output.pathway_loaded",
                                 div(style = "text-align: center; color: #666; padding: 40px 20px;",
-                                    icon("project-diagram", style = "font-size: 48px; color: #28a745;"),
+                                    icon("project-diagram", style = "font-size: 48px; color: #ccc;"),
                                     br(), br(),
                                     h4("No Pathway Selected"),
                                     p("Load a pathway to view expression profiles of pathway genes."),
@@ -415,7 +415,7 @@ ui <- dashboardPage(
                 # Edge Legend at bottom
                 fluidRow(
                     box(
-                        title = "Edge Legend", status = "warning", solidHeader = TRUE,
+                        title = "Edge Legend", status = "info", solidHeader = TRUE,
                         width = 12, collapsible = TRUE, collapsed = TRUE,
                         
                         h5("Relationship Types"),
