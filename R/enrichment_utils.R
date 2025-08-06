@@ -35,11 +35,17 @@ convert_symbols_to_entrez <- function(gene_symbols) {
 #' @param organism KEGG organism code (default: "hsa" for human)
 #' @param pvalue_cutoff P-value cutoff for significance (default: 0.05)
 #' @param qvalue_cutoff Q-value cutoff for FDR correction (default: 0.2)
+#' @param progress Optional progress object for showing progress updates
 #' @return enrichResult object from clusterProfiler
 perform_kegg_enrichment <- function(gene_symbols, organism = "hsa", 
-                                   pvalue_cutoff = 0.05, qvalue_cutoff = 0.2) {
+                                   pvalue_cutoff = 0.05, qvalue_cutoff = 0.2, progress = NULL) {
     tryCatch({
         cat("Starting KEGG enrichment analysis for", length(gene_symbols), "genes\n")
+        
+        # Update progress if provided
+        if (!is.null(progress)) {
+            progress$set(message = "Converting gene symbols to Entrez IDs...", value = 0.3)
+        }
         
         # Convert gene symbols to Entrez IDs
         entrez_ids <- convert_symbols_to_entrez(gene_symbols)
@@ -49,6 +55,11 @@ perform_kegg_enrichment <- function(gene_symbols, organism = "hsa",
         }
         
         cat("Converted", length(gene_symbols), "symbols to", length(entrez_ids), "Entrez IDs\n")
+        
+        # Update progress if provided
+        if (!is.null(progress)) {
+            progress$set(message = "Running KEGG pathway enrichment...", value = 0.6)
+        }
         
         # Perform KEGG enrichment
         kegg_result <- clusterProfiler::enrichKEGG(
@@ -60,6 +71,11 @@ perform_kegg_enrichment <- function(gene_symbols, organism = "hsa",
             qvalueCutoff = qvalue_cutoff,
             use_internal_data = FALSE
         )
+        
+        # Update progress if provided
+        if (!is.null(progress)) {
+            progress$set(message = "Analyzing results...", value = 0.8)
+        }
         
         if (is.null(kegg_result) || nrow(kegg_result@result) == 0) {
             cat("No significant pathways found\n")

@@ -316,8 +316,6 @@ server <- function(input, output, session) {
     observeEvent(input$load_pathway, {
         req(input$pathway_table_rows_selected)
         
-        showNotification("Loading pathway data...", type = "message")
-        
         # Get selected pathway
         if (!is.null(input$pathway_search) && input$pathway_search != "") {
             filtered_pathways <- search_pathways(values$pathways_list, input$pathway_search)
@@ -327,19 +325,36 @@ server <- function(input, output, session) {
             selected_row <- category_pathways[input$pathway_table_rows_selected, ]
         }
         
+        pathway_id <- selected_row$pathway_id
+        
+        # Show progress notification
+        progress <- Progress$new()
+        progress$set(message = paste("Loading pathway", pathway_id), value = 0.1)
+        on.exit(progress$close())
+        
+        showNotification(paste("Loading pathway data:", pathway_id), type = "message")
+        
         values$selected_pathway <- selected_row
+        progress$set(value = 0.3)
         
         # Load pathway graph with HSA gene data
         tryCatch({
-            pathway_data <- parse_kegg_pathway_with_hsa(selected_row$pathway_id, use_cached = TRUE)
+            progress$set(message = "Parsing pathway data...", value = 0.5)
+            pathway_data <- parse_kegg_pathway_with_hsa(pathway_id, use_cached = TRUE)
+            
+            progress$set(message = "Building network...", value = 0.7)
             values$pathway_graph <- pathway_data$kegg_data
             values$nodes <- pathway_data$nodes
             values$edges <- pathway_data$edges
+            
+            progress$set(message = "Finalizing...", value = 0.9)
             
             showNotification(
                 paste("Pathway loaded successfully with", nrow(pathway_data$nodes), "network nodes!"), 
                 type = "message"
             )
+            
+            progress$set(value = 1.0)
             
             # Switch to network tab
             updateTabItems(session, "tabs", "network")
@@ -715,17 +730,29 @@ server <- function(input, output, session) {
             return()
         }
         
+        # Show progress notification
+        progress <- Progress$new()
+        progress$set(message = "Starting KEGG enrichment analysis...", value = 0.1)
+        on.exit(progress$close())
+        
         showNotification("Running KEGG enrichment analysis...", type = "message")
+        
+        progress$set(message = "Converting gene symbols to Entrez IDs...", value = 0.3)
         
         # Run enrichment analysis
         result <- perform_kegg_enrichment(
             genes, 
             organism = "hsa",
             pvalue_cutoff = input$pvalue_cutoff,
-            qvalue_cutoff = input$qvalue_cutoff
+            qvalue_cutoff = input$qvalue_cutoff,
+            progress = progress  # Pass progress object to the function
         )
         
+        progress$set(message = "Processing results...", value = 0.9)
+        
         enrichment_results(result)
+        
+        progress$set(value = 1.0)
         
         if (is.null(result)) {
             showNotification("No significant pathways found. Try adjusting p-value cutoffs.", 
