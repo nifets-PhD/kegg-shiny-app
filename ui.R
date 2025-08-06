@@ -1,5 +1,9 @@
+# Load color configuration
+source("R/color_config.R")
+
 # Define UI
 ui <- dashboardPage(
+    skin = "purple",  # Use purple skin
     dashboardHeader(title = "Evo KEGG Pathways"),
     
     dashboardSidebar(
@@ -14,14 +18,16 @@ ui <- dashboardPage(
     
     dashboardBody(
         tags$head(
-            tags$style(HTML("
+            tags$style(HTML(paste0("
                 .content-wrapper, .right-side {
                     background-color: #f4f4f4;
                 }
                 .box {
                     margin-bottom: 20px;
                 }
-            "))
+                ",
+                generate_custom_css()  # Add custom purple/green theme
+            )))
         ),
         
         tabItems(
@@ -466,7 +472,7 @@ ui <- dashboardPage(
                     ),
                     
                     box(
-                        title = "Phylostratum Mapping", status = "info", solidHeader = TRUE,
+                        title = "Phylostratum Mapping", status = "success", solidHeader = TRUE,
                         width = 6, collapsible = TRUE, height = "auto", style = "min-height: 650px;",
                         
                         conditionalPanel(
