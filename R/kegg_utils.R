@@ -854,9 +854,24 @@ create_kegg_network_visualization <- function(nodes, edges, show_labels = TRUE, 
         # Create network with KEGG layout
     network <- visNetwork(vis_nodes, vis_edges) %>%
         visNodes(
-            font = list(size = 11, strokeWidth = 0),  # Remove text stroke that might interfere
+            font = list(
+                size = 14,  # Increased base font size
+                strokeWidth = 1,
+                strokeColor = "white"  # White outline for better contrast
+            ),
             borderWidth = 1,
-            shadow = FALSE  # Disable shadows that might affect text rendering
+            shadow = FALSE,  # Disable shadows that might affect text rendering
+            scaling = list(
+                min = 10,
+                max = 30,
+                label = list(
+                    enabled = TRUE,
+                    min = 14,
+                    max = 24,
+                    maxVisible = 30,
+                    drawThreshold = 1  # Very low threshold to always show labels
+                )
+            )
         ) %>%
         visInteraction(
             navigationButtons = TRUE, 

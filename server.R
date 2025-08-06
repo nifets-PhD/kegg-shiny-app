@@ -343,7 +343,7 @@ server <- function(input, output, session) {
         datatable(
             gene_df,
             options = list(
-                pageLength = 10,
+                pageLength = 50,
                 searching = TRUE,
                 info = TRUE,
                 lengthChange = FALSE,
@@ -677,6 +677,55 @@ server <- function(input, output, session) {
         length(uploaded_genes()) > 0
     })
     outputOptions(output, "genes_loaded", suspendWhenHidden = FALSE)
+    
+    # Network highlighted genes display (for highlight_genes option)
+    output$network_highlighted_genes <- renderDT({
+        entrez_ids <- internal_genes()
+        if (length(entrez_ids) == 0) {
+            return(datatable(
+                data.frame(Message = "No genes loaded"),
+                options = list(pageLength = 5, searching = FALSE, info = FALSE, 
+                              paging = FALSE, dom = 't'),
+                rownames = FALSE
+            ))
+        }
+        
+        # Convert internal Entrez IDs to symbols for display
+        symbols <- entrez_to_symbols(entrez_ids, comprehensive_mapping)
+        
+        # Calculate columns: min(num_genes, 5)
+        num_cols <- min(length(symbols), 5)
+        num_rows <- ceiling(length(symbols) / num_cols)
+        
+        # Create matrix to arrange genes
+        gene_matrix <- matrix(NA, nrow = num_rows, ncol = num_cols)
+        for (i in seq_along(symbols)) {
+            row <- ((i - 1) %/% num_cols) + 1
+            col <- ((i - 1) %% num_cols) + 1
+            gene_matrix[row, col] <- symbols[i]
+        }
+        
+        # Convert to data frame
+        gene_df <- as.data.frame(gene_matrix, stringsAsFactors = FALSE)
+        colnames(gene_df) <- paste0("Col", 1:num_cols)
+        
+        # Replace NA with empty strings
+        gene_df[is.na(gene_df)] <- ""
+        
+        datatable(
+            gene_df,
+            options = list(
+                pageLength = 25, 
+                searching = FALSE, 
+                info = FALSE, 
+                paging = FALSE,
+                dom = 't',
+                columnDefs = list(list(className = 'dt-center', targets = '_all'))
+            ),
+            rownames = FALSE,
+            colnames = rep("", ncol(gene_df))
+        )
+    })
     
     # Search pathways
     observeEvent(input$search_pathways, {
@@ -1112,11 +1161,12 @@ server <- function(input, output, session) {
                 searching = FALSE, # Disable search
                 info = FALSE,     # Hide table info
                 dom = 't',        # Only show table
-                scrollY = '350px',
+                scrollY = '120px',  # Match container height minus padding
                 scrollCollapse = TRUE,
+                autoWidth = FALSE,  # Prevent auto width calculation
                 columnDefs = list(
-                    list(width = '40px', targets = 0, className = 'text-center'),  # Rank column
-                    list(width = '160px', targets = 1)  # Name column
+                    list(width = '30px', targets = 0, className = 'text-center'),  # Rank column narrower
+                    list(width = '120px', targets = 1)  # Name column narrower
                 )
             ),
             rownames = FALSE,
@@ -1228,6 +1278,21 @@ server <- function(input, output, session) {
     
     # Navigation to Pathway Explorer tab
     observeEvent(input$goto_explorer, {
+        updateTabItems(session, "tabs", selected = "explorer")
+    })
+    
+    # Navigation to Gene Set tab from network options
+    observeEvent(input$goto_geneset_from_network, {
+        updateTabItems(session, "tabs", selected = "geneset")
+    })
+    
+    # Navigation to Evolutionary Transcriptomics tab from network
+    observeEvent(input$goto_evolution_from_network, {
+        updateTabItems(session, "tabs", selected = "evolution")
+    })
+    
+    # Navigation to Pathway Explorer tab from expression card
+    observeEvent(input$goto_explorer_from_expression, {
         updateTabItems(session, "tabs", selected = "explorer")
     })
     
@@ -1513,10 +1578,10 @@ server <- function(input, output, session) {
             
             HTML(paste0(
                 "<div style='text-align: center;'>",
-                "<h3 style='margin: 5px 0; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);'>",
+                "<h4 style='margin: 5px 0; color: white; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);'>",
                 values$selected_pathway$pathway_name,
-                "</h3>",
-                "<p style='margin: 5px 0; font-size: 16px; color: #e8f4f8;'>",
+                "</h4>",
+                "<p style='margin: 5px 0; font-size: 14px; color: #e8f4f8;'>",
                 "<strong>Pathway ID:</strong> ", pathway_id, " | ",
                 "<a href='", kegg_url, "' target='_blank' style='color: #fff; text-decoration: underline;'>",
                 "View on KEGG Database ↗",

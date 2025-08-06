@@ -61,6 +61,6 @@ create_uniprot_structure_link <- function(uniprot_id) {
         return("")
     }
     
-    alphafold_url <- paste0("https://alphafold.ebi.ac.uk/entry/", uniprot_id)
-    return(paste0('<a href="', alphafold_url, '" target="_blank" style="color: #007bff;">View 3D Structure ↗</a>'))
+    uniprot_url <- paste0("https://www.uniprot.org/uniprotkb/", uniprot_id, "/entry#structure")
+    return(paste0('<a href="', uniprot_url, '" target="_blank" style="color: #007bff;">View 3D Structure ↗</a>'))
 }

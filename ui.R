@@ -3,12 +3,12 @@ ui <- dashboardPage(
     dashboardHeader(title = "Evo KEGG Pathways"),
     
     dashboardSidebar(
-        sidebarMenu(
-            menuItem("Gene Set", tabName = "geneset", icon = icon("list")),
-            menuItem("KEGG Enrichment", tabName = "enrichment", icon = icon("chart-bar")),
+        sidebarMenu(id = "tabs",
+            menuItem("Integrated Visualisation", tabName = "network", icon = icon("project-diagram")),
             menuItem("Pathway Explorer", tabName = "explorer", icon = icon("search")),
-            menuItem("Network Visualization", tabName = "network", icon = icon("project-diagram")),
-            menuItem("Evolutionary Transcriptomics", tabName = "evolution", icon = icon("dna"))
+            menuItem("Your Gene Set", tabName = "geneset", icon = icon("list")),
+            menuItem("KEGG Enrichment", tabName = "enrichment", icon = icon("chart-bar")),
+            menuItem("Your Expression Data", tabName = "evolution", icon = icon("dna"))
         )
     ),
     
@@ -250,7 +250,7 @@ ui <- dashboardPage(
                 )
             ),
             
-            # Network Visualization Tab
+            # Pathway Visualisation Tab
             tabItem(tabName = "network",
                 # Pathway header with title and KEGG link
                 fluidRow(
@@ -269,113 +269,143 @@ ui <- dashboardPage(
                 ),
                 
                 fluidRow(
-                    box(
-                        title = "Pathway Network", status = "success", solidHeader = TRUE,
-                        width = 8, collapsible = TRUE,
-                        
-                        conditionalPanel(
-                            condition = "output.pathway_loaded",
-                            visNetworkOutput("pathway_network", height = "700px")
-                        ),
-                        
-                        conditionalPanel(
-                            condition = "!output.pathway_loaded",
-                            div(style = "text-align: center; color: #666; padding: 100px 20px;",
-                                icon("project-diagram", style = "font-size: 64px; color: #ccc;"),
-                                br(), br(),
-                                h4("No Pathway Loaded"),
-                                p("Load a pathway from the Pathway Explorer tab or select one from enrichment results."),
-                                br(),
-                                actionButton("goto_explorer", "Go to Pathway Explorer", 
-                                           class = "btn-primary", icon = icon("search"))
-                            )
-                        )
-                    ),
-                    
-                    box(
-                        title = "Network Options", status = "primary", solidHeader = TRUE,
-                        width = 4, collapsible = TRUE,
-                        
-                        h5("Node Coloring"),
-                        radioButtons("node_coloring", "Color nodes by:",
-                                   choices = list(
-                                       "KEGG Default" = "kegg_default",
-                                       "Phylostratum" = "phylostratum",
-                                       "Highlight Uploaded Genes" = "highlight_genes"
-                                   ),
-                                   selected = "kegg_default"),
-                        
-                        conditionalPanel(
-                            condition = "input.node_coloring == 'phylostratum'",
-                            helpText("Colors nodes by evolutionary age (phylostratum)."),
-                            br()
-                        ),
-                        
-                        # Phylostratum Legend
-                        conditionalPanel(
-                            condition = "input.node_coloring == 'phylostratum'",
-                            hr(),
-                            h5("Phylostratum Legend"),
-                            div(style = "max-height: 400px; overflow-y: auto;",
-                                DT::dataTableOutput("phylostratum_legend_table")
-                            )
-                        )
-                    )
-                ),
-                
-                fluidRow(
-                    box(
-                        title = "Edge Legend", status = "warning", solidHeader = TRUE,
-                        width = 6, collapsible = TRUE, height = "500px",
-                        
-                        h5("Relationship Types"),
-                        p("Different colors and styles represent different biological relationships:"),
-                        div(style = "max-height: 400px; overflow-y: auto;",
-                            DT::dataTableOutput("edge_legend_table")
-                        )
-                    ),
-                    
-                    box(
-                        title = "Selected Node Information", status = "info", solidHeader = TRUE,
-                        width = 6, collapsible = TRUE,
-                        
-                        htmlOutput("node_info")
-                    )
-                ),
-                
-                # Gene information boxes at the bottom
-                fluidRow(
-                    conditionalPanel(
-                        condition = "output.genes_loaded",
+                    # Column 1: Pathway Network and Expression Profiles
+                    column(8,
+                        # Pathway Network
                         box(
-                            title = "Your Selected Genes", status = "success", solidHeader = TRUE,
-                            width = 6, collapsible = TRUE, collapsed = TRUE,
-                            
-                            div(style = "max-height: 150px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 5px;",
-                                verbatimTextOutput("selected_genes_display_network", placeholder = TRUE)
-                            ),
-                            p(style = "font-size: 12px; color: #666; margin-top: 10px;",
-                              "⭐ Your genes are highlighted in red in the network visualization above.")
-                        ),
-                        
-                        box(
-                            title = "Genes Found in Current Pathway", status = "warning", solidHeader = TRUE,
-                            width = 6, collapsible = TRUE, collapsed = FALSE,
+                            title = "Pathway Network", status = "success", solidHeader = TRUE,
+                            width = 12, collapsible = TRUE,
                             
                             conditionalPanel(
                                 condition = "output.pathway_loaded",
-                                div(style = "max-height: 150px; overflow-y: auto; background: #fff3cd; padding: 10px; border-radius: 5px;",
-                                    verbatimTextOutput("genes_in_pathway", placeholder = TRUE)
-                                ),
-                                p(style = "font-size: 12px; color: #856404; margin-top: 10px;",
-                                  "🎯 These are your genes that appear in the current pathway network.")
+                                visNetworkOutput("pathway_network", height = "450px")
                             ),
                             
                             conditionalPanel(
                                 condition = "!output.pathway_loaded",
-                                p(style = "color: #666; font-style: italic;",
-                                  "Load a pathway to see which of your genes are present in it.")
+                                div(style = "text-align: center; color: #666; padding: 60px 20px;",
+                                    icon("project-diagram", style = "font-size: 64px; color: #ccc;"),
+                                    br(), br(),
+                                    h4("No Pathway Loaded"),
+                                    p("Load a pathway from the Pathway Explorer tab or select one from enrichment results."),
+                                    br(),
+                                    actionButton("goto_explorer", "Go to Pathway Explorer", 
+                                               class = "btn-primary", icon = icon("search"))
+                                )
                             )
+                        ),
+                        
+                        # Expression Profiles - always show
+                        box(
+                            title = "Gene Expression Profiles", status = "info", solidHeader = TRUE,
+                            width = 12, collapsible = TRUE,
+                            
+                            # Show plot when both phyloset and pathway are loaded
+                            conditionalPanel(
+                                condition = "output.phyloset_created && output.pathway_loaded",
+                                plotOutput("pathway_expression_plot", height = "400px")
+                            ),
+                            
+                            # Direct to evolution tab when no phyloset created
+                            conditionalPanel(
+                                condition = "!output.phyloset_created",
+                                div(style = "text-align: center; color: #666; padding: 40px 20px;",
+                                    icon("dna", style = "font-size: 48px; color: #17a2b8;"),
+                                    br(), br(),
+                                    h4("No Expression Dataset Loaded"),
+                                    p("Load an expression dataset to view gene expression profiles colored by evolutionary age."),
+                                    br(),
+                                    actionButton("goto_evolution_from_network", "Go to Your Expression Data", 
+                                               class = "btn-info", icon = icon("dna"))
+                                )
+                            ),
+                            
+                            # Show when phyloset created but no pathway loaded
+                            conditionalPanel(
+                                condition = "output.phyloset_created && !output.pathway_loaded",
+                                div(style = "text-align: center; color: #666; padding: 40px 20px;",
+                                    icon("project-diagram", style = "font-size: 48px; color: #28a745;"),
+                                    br(), br(),
+                                    h4("No Pathway Selected"),
+                                    p("Load a pathway to view expression profiles of pathway genes."),
+                                    br(),
+                                    actionButton("goto_explorer_from_expression", "Go to Pathway Explorer", 
+                                               class = "btn-success", icon = icon("search"))
+                                )
+                            )
+                        )
+                    ),
+                    
+                    # Column 2: Network Options, Selected Node Info, Edge Legend
+                    column(4,
+                        # Options
+                        box(
+                            title = "Options", status = "primary", solidHeader = TRUE,
+                            width = 12, collapsible = TRUE,
+                            
+                            h5("Gene Colouring"),
+                            radioButtons("node_coloring", "Colour genes by:",
+                                       choices = list(
+                                           "KEGG Default" = "kegg_default",
+                                           "Phylostratum" = "phylostratum",
+                                           "Highlight Uploaded Genes" = "highlight_genes"
+                                       ),
+                                       selected = "kegg_default"),
+                            
+                            # Show selected genes when highlighting uploaded genes
+                            conditionalPanel(
+                                condition = "input.node_coloring == 'highlight_genes' && output.genes_loaded",
+                                hr(),
+                                h6("Highlighted Genes:"),
+                                div(style = "background: #f8f9fa; padding: 4px; border-radius: 4px; max-height: 150px; overflow-y: auto;",
+                                    DT::dataTableOutput("network_highlighted_genes", height = "120px")
+                                )
+                            ),
+                            
+                            # Direct to gene set tab when highlight_genes selected but no genes loaded
+                            conditionalPanel(
+                                condition = "input.node_coloring == 'highlight_genes' && !output.genes_loaded",
+                                hr(),
+                                div(style = "background: #fff3cd; padding: 12px; border-radius: 4px; border-left: 4px solid #856404;",
+                                    h6(style = "margin: 0 0 8px 0; color: #856404;", "No Genes to Highlight"),
+                                    p(style = "margin: 0 0 10px 0; font-size: 13px; color: #856404;", 
+                                      "Upload your gene set first to highlight genes in the pathway."),
+                                    actionButton("goto_geneset_from_network", "Go to Your Gene Set Tab", 
+                                               class = "btn-warning btn-sm", icon = icon("upload"))
+                                )
+                            ),
+                            
+                            conditionalPanel(
+                                condition = "input.node_coloring == 'phylostratum'",
+                                hr(),
+                                h6("Phylostratum Legend"),
+                                helpText("Colors genes by evolutionary age (phylostratum)."),
+                                div(style = "background: #f8f9fa; padding: 4px; border-radius: 4px; max-height: 180px;",
+                                    DT::dataTableOutput("phylostratum_legend_table", height = "160px")
+                                )
+                            )
+                        ),
+                        
+                        # Selected Gene Information
+                        box(
+                            title = "Selected Gene Information", status = "info", solidHeader = TRUE,
+                            width = 12, collapsible = TRUE,
+                            
+                            htmlOutput("node_info")
+                        )
+                    )
+                ),
+                
+                # Edge Legend at bottom
+                fluidRow(
+                    box(
+                        title = "Edge Legend", status = "warning", solidHeader = TRUE,
+                        width = 12, collapsible = TRUE, collapsed = TRUE,
+                        
+                        h5("Relationship Types"),
+                        p("Different colours and styles represent different biological relationships:"),
+                        div(style = "max-height: 300px; overflow-y: auto;",
+                            DT::dataTableOutput("edge_legend_table")
                         )
                     )
                 )
@@ -570,7 +600,7 @@ ui <- dashboardPage(
                                                class = "btn-info btn-block",
                                                icon = icon("project-diagram"),
                                                style = "margin-bottom: 5px;"),
-                                    helpText("PCA of genes colored by phylostratum"),
+                                    helpText("PCA of genes coloured by phylostratum"),
                                     
                                     actionButton("plot_sample_space", "Sample Space", 
                                                class = "btn-info btn-block",
