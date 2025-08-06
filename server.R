@@ -7,8 +7,7 @@ server <- function(input, output, session) {
         selected_pathway = NULL,
         pathway_graph = NULL,
         nodes = NULL,
-        edges = NULL,
-        sequence_data = NULL
+        edges = NULL
     )
     
     # Gene upload functionality
@@ -135,16 +134,13 @@ server <- function(input, output, session) {
     # Load comprehensive gene ID mapping
     comprehensive_mapping <- NULL
     tryCatch({
-        comprehensive_mapping <- download_hgnc_uniprot_mapping()
-        if (nrow(comprehensive_mapping) > 0) {
-            cat("Loaded comprehensive gene mapping with", nrow(comprehensive_mapping), "entries\n")
-        }
+        comprehensive_mapping <- load_comprehensive_gene_mapping()
     }, error = function(e) {
         cat("Error loading comprehensive gene mapping:", e$message, "\n")
         comprehensive_mapping <- NULL
     })
     
-    # Load KEGG pathways and sequence data on app start
+    # Load KEGG pathways on app start
     observe({
         showNotification("Loading KEGG pathways...", type = "message")
         values$pathways_list <- get_kegg_pathways()
@@ -349,6 +345,73 @@ server <- function(input, output, session) {
         return(stats)
     })
     
+    # Helper function to get readable gene labels from network nodes
+    get_readable_gene_labels <- function(input_genes, nodes = NULL) {
+        if (length(input_genes) == 0) return(character(0))
+        
+        # If no pathway is loaded, return original genes
+        if (is.null(nodes) || nrow(nodes) == 0) {
+            return(input_genes)
+        }
+        
+        readable_labels <- character(length(input_genes))
+        entrez_ids <- converted_entrez_genes()
+        
+        for (i in seq_along(input_genes)) {
+            gene <- input_genes[i]
+            readable_labels[i] <- gene  # Default fallback
+            
+            # Try to find this gene in the network nodes
+            # Method 1: Match by Entrez ID if available
+            if (length(entrez_ids) >= i && !is.na(entrez_ids[i])) {
+                for (j in seq_len(nrow(nodes))) {
+                    node_kegg_ids <- character(0)
+                    
+                    # Extract Entrez IDs from this node
+                    if (!is.na(nodes$kegg_id[j]) && nodes$kegg_id[j] != "") {
+                        node_kegg_ids <- c(node_kegg_ids, nodes$kegg_id[j])
+                    }
+                    
+                    if (!is.null(nodes$gene_name) && !is.na(nodes$gene_name[j])) {
+                        numeric_ids <- regmatches(nodes$gene_name[j], gregexpr("\\d+", nodes$gene_name[j]))[[1]]
+                        node_kegg_ids <- c(node_kegg_ids, numeric_ids)
+                    }
+                    
+                    if (entrez_ids[i] %in% node_kegg_ids) {
+                        if (!is.null(nodes$label) && !is.na(nodes$label[j]) && nodes$label[j] != "") {
+                            readable_labels[i] <- nodes$label[j]
+                            break
+                        }
+                    }
+                }
+            }
+            
+            # Method 2: Try direct matching by gene symbol/label
+            if (readable_labels[i] == gene) {  # Still using fallback, try direct match
+                gene_upper <- toupper(gene)
+                
+                # Check HGNC symbols
+                if (!is.null(nodes$hgnc_symbol)) {
+                    match_idx <- which(toupper(nodes$hgnc_symbol) == gene_upper)
+                    if (length(match_idx) > 0 && !is.null(nodes$label) && 
+                        !is.na(nodes$label[match_idx[1]]) && nodes$label[match_idx[1]] != "") {
+                        readable_labels[i] <- nodes$label[match_idx[1]]
+                    }
+                }
+                
+                # Check labels directly
+                if (readable_labels[i] == gene && !is.null(nodes$label)) {
+                    match_idx <- which(toupper(nodes$label) == gene_upper)
+                    if (length(match_idx) > 0) {
+                        readable_labels[i] <- nodes$label[match_idx[1]]
+                    }
+                }
+            }
+        }
+        
+        return(readable_labels)
+    }
+    
     # Selected genes display for Pathway Explorer tab
     output$selected_genes_display <- renderText({
         genes <- uploaded_genes()
@@ -356,9 +419,12 @@ server <- function(input, output, session) {
             return("No genes selected yet. Upload a file or enter genes in the text box above.")
         }
         
+        # Get readable labels (will return original if no pathway loaded)
+        readable_genes <- get_readable_gene_labels(genes, values$nodes)
+        
         # Format genes in columns for better display
         genes_per_row <- 5
-        gene_rows <- split(genes, ceiling(seq_along(genes) / genes_per_row))
+        gene_rows <- split(readable_genes, ceiling(seq_along(readable_genes) / genes_per_row))
         formatted_rows <- sapply(gene_rows, function(row) paste(row, collapse = "  |  "))
         
         paste(c(
@@ -368,16 +434,19 @@ server <- function(input, output, session) {
         ), collapse = "\n")
     })
     
-    # Selected genes display for Network tab (same content, different output)
+    # Selected genes display for Network tab
     output$selected_genes_display_network <- renderText({
         genes <- uploaded_genes()
         if (length(genes) == 0) {
             return("No genes selected. Go to Pathway Explorer tab to upload genes.")
         }
         
+        # Get readable labels from network nodes
+        readable_genes <- get_readable_gene_labels(genes, values$nodes)
+        
         # Format genes in columns for better display
         genes_per_row <- 6
-        gene_rows <- split(genes, ceiling(seq_along(genes) / genes_per_row))
+        gene_rows <- split(readable_genes, ceiling(seq_along(readable_genes) / genes_per_row))
         formatted_rows <- sapply(gene_rows, function(row) paste(row, collapse = "  |  "))
         
         paste(c(
@@ -402,7 +471,7 @@ server <- function(input, output, session) {
             return("No pathway loaded")
         }
         
-        found_genes <- character(0)
+        found_genes_with_labels <- list()  # Store both original gene and readable label
         found_by_entrez <- character(0)
         
         # First, try to match using Entrez IDs (most reliable for KEGG pathways)
@@ -426,8 +495,16 @@ server <- function(input, output, session) {
                 # Check if any of our Entrez IDs match this node
                 matches <- intersect(entrez_ids, node_kegg_ids)
                 if (length(matches) > 0) {
-                    # Map back to original gene symbols for display
+                    # Map back to original gene symbols for display, but use node label for readable display
                     validation <- gene_validation_results()
+                    node_label <- if (!is.null(nodes$label) && !is.na(nodes$label[i]) && nodes$label[i] != "") {
+                        nodes$label[i]
+                    } else if (!is.null(nodes$hgnc_symbol) && !is.na(nodes$hgnc_symbol[i]) && nodes$hgnc_symbol[i] != "") {
+                        nodes$hgnc_symbol[i]
+                    } else {
+                        matches[1]  # Fallback to Entrez ID
+                    }
+                    
                     if (!is.null(validation$entrez_mapping)) {
                         for (entrez_match in matches) {
                             original_gene <- validation$entrez_mapping[
@@ -436,6 +513,7 @@ server <- function(input, output, session) {
                                 names(validation$entrez_mapping)[1]  # Get original ID column
                             ]
                             if (length(original_gene) > 0 && !is.na(original_gene[1])) {
+                                found_genes_with_labels[[original_gene[1]]] <- node_label
                                 found_by_entrez <- c(found_by_entrez, original_gene[1])
                             }
                         }
@@ -445,24 +523,44 @@ server <- function(input, output, session) {
         }
         
         # Additionally, try traditional matching for any that weren't found by Entrez ID
-        # This provides backward compatibility and catches edge cases
         genes_upper <- toupper(original_genes)
         traditional_found <- character(0)
         
         # Check HGNC symbols
         if (!is.null(nodes$hgnc_symbol)) {
-            hgnc_matches <- original_genes[genes_upper %in% toupper(nodes$hgnc_symbol)]
-            traditional_found <- c(traditional_found, hgnc_matches)
+            for (j in seq_along(original_genes)) {
+                gene <- original_genes[j]
+                if (!(gene %in% names(found_genes_with_labels))) {  # Not already found
+                    match_idx <- which(toupper(nodes$hgnc_symbol) == toupper(gene))
+                    if (length(match_idx) > 0) {
+                        node_label <- if (!is.null(nodes$label) && !is.na(nodes$label[match_idx[1]]) && nodes$label[match_idx[1]] != "") {
+                            nodes$label[match_idx[1]]
+                        } else {
+                            nodes$hgnc_symbol[match_idx[1]]
+                        }
+                        found_genes_with_labels[[gene]] <- node_label
+                        traditional_found <- c(traditional_found, gene)
+                    }
+                }
+            }
         }
         
         # Check labels (node labels)  
         if (!is.null(nodes$label)) {
-            label_matches <- original_genes[genes_upper %in% toupper(nodes$label)]
-            traditional_found <- c(traditional_found, label_matches)
+            for (j in seq_along(original_genes)) {
+                gene <- original_genes[j]
+                if (!(gene %in% names(found_genes_with_labels))) {  # Not already found
+                    match_idx <- which(toupper(nodes$label) == toupper(gene))
+                    if (length(match_idx) > 0) {
+                        found_genes_with_labels[[gene]] <- nodes$label[match_idx[1]]
+                        traditional_found <- c(traditional_found, gene)
+                    }
+                }
+            }
         }
         
-        # Combine all found genes and remove duplicates
-        all_found <- unique(c(found_by_entrez, traditional_found))
+        # Get all found genes
+        all_found <- names(found_genes_with_labels)
         
         if (length(all_found) == 0) {
             id_type_label <- switch(gene_id_type(),
@@ -479,9 +577,10 @@ server <- function(input, output, session) {
                          "Check the Gene Set tab to see conversion rates for your IDs."))
         }
         
-        # Format the found genes
+        # Format the found genes using readable labels
+        readable_labels <- unlist(found_genes_with_labels)
         genes_per_row <- 4
-        gene_rows <- split(all_found, ceiling(seq_along(all_found) / genes_per_row))
+        gene_rows <- split(readable_labels, ceiling(seq_along(readable_labels) / genes_per_row))
         formatted_rows <- sapply(gene_rows, function(row) paste(row, collapse = "  |  "))
         
         missing_genes <- setdiff(original_genes, all_found)
@@ -1235,18 +1334,19 @@ server <- function(input, output, session) {
         
         # Create the plot
         p <- ggplot(plot_data, aes(x = FoldEnrichment, y = PathwayShort)) +
-            geom_point(aes(size = Count, color = p.adjust), alpha = 0.7) +
-            scale_color_gradient(low = "red", high = "blue", name = "Adj. P-value") +
+            geom_point(aes(size = Count, colour = p.adjust), alpha = 0.8) +
+            scale_colour_gradient(low = "red", high = "blue", name = "P-adjust") +
             scale_size_continuous(name = "Gene Count", range = c(3, 10)) +
             labs(
-                title = paste("Top", nrow(plot_data), "Enriched KEGG Pathways"),
+                title = paste("Top", min(nrow(plot_data), input$plot_top_n), "Enriched KEGG Pathways"),
                 x = "Fold Enrichment",
-                y = "Pathway"
+                y = "KEGG Pathway",
+                subtitle = paste("Based on", length(uploaded_genes()), "input genes")
             ) +
             theme_minimal() +
             theme(
                 axis.text.y = element_text(size = 10),
-                plot.title = element_text(size = 14, hjust = 0.5),
+                plot.title = element_text(size = 14, face = "bold"),
                 legend.position = "right"
             )
         
@@ -1256,7 +1356,6 @@ server <- function(input, output, session) {
     
     # Update plot when parameters change
     observeEvent(input$update_plot, {
-        # The plot will automatically update due to reactive dependencies
         showNotification("Plot updated", type = "message", duration = 2)
     })
     
@@ -1278,22 +1377,26 @@ server <- function(input, output, session) {
     
     # Show selected pathway info from enrichment table
     output$selected_enrichment_pathway <- renderText({
-        if (is.null(input$enrichment_table_rows_selected)) {
-            return("")
-        }
+        req(input$enrichment_table_rows_selected)
         
         result <- enrichment_results()
-        if (!is.null(result)) {
-            formatted_results <- format_enrichment_results(result, uploaded_genes())
-            selected_row <- formatted_results[input$enrichment_table_rows_selected, ]
-            
-            paste0(
-                "Pathway: ", selected_row$Pathway, "\n",
-                "Description: ", selected_row$Description, "\n",
-                "P-adjust: ", format(selected_row$p.adjust, scientific = TRUE, digits = 3), "\n",
-                "Genes: ", selected_row$Count, " genes"
-            )
+        if (is.null(result) || length(input$enrichment_table_rows_selected) == 0) {
+            return("No pathway selected")
         }
+        
+        selected_pathway <- result@result[input$enrichment_table_rows_selected, ]
+        
+        paste0(
+            "SELECTED ENRICHED PATHWAY\n",
+            "========================\n",
+            "Pathway: ", selected_pathway$Description, "\n",
+            "ID: ", selected_pathway$ID, "\n",
+            "P-value: ", format(selected_pathway$pvalue, scientific = TRUE, digits = 3), "\n",
+            "Adjusted p-value: ", format(selected_pathway$p.adjust, scientific = TRUE, digits = 3), "\n",
+            "Fold enrichment: ", round(selected_pathway$FoldEnrichment, 2), "\n",
+            "Genes in pathway: ", selected_pathway$Count, "/", strsplit(selected_pathway$BgRatio, "/")[[1]][2], "\n",
+            "Your genes found: ", selected_pathway$GeneRatio
+        )
     })
     
     # Load pathway selected from enrichment results with button
@@ -1301,61 +1404,44 @@ server <- function(input, output, session) {
         req(input$enrichment_table_rows_selected)
         
         result <- enrichment_results()
-        if (!is.null(result)) {
-            formatted_results <- format_enrichment_results(result, uploaded_genes())
-            selected_row <- formatted_results[input$enrichment_table_rows_selected, ]
+        if (is.null(result)) {
+            showNotification("No enrichment results available", type = "warning")
+            return()
+        }
+        
+        selected_pathway <- result@result[input$enrichment_table_rows_selected, ]
+        pathway_id <- selected_pathway$ID
+        
+        # Create pathway info for values$selected_pathway
+        pathway_info <- list(
+            pathway_id = pathway_id,
+            pathway_name = selected_pathway$Description,
+            description = paste("Enriched pathway (p =", format(selected_pathway$p.adjust, scientific = TRUE, digits = 3), ")")
+        )
+        
+        showNotification(paste("Loading enriched pathway:", pathway_id), type = "message")
+        
+        # Load pathway data
+        tryCatch({
+            pathway_data <- parse_kegg_pathway_with_hsa(pathway_id, use_cached = TRUE)
             
-            # Extract pathway ID (should be like "hsa04110")
-            pathway_id <- selected_row$Pathway
+            values$selected_pathway <- pathway_info
+            values$pathway_graph <- pathway_data$kegg_data
+            values$nodes <- pathway_data$nodes
+            values$edges <- pathway_data$edges
             
-            # Show progress notification
-            progress <- Progress$new()
-            progress$set(message = paste("Loading pathway", pathway_id), value = 0.1)
-            on.exit(progress$close())
-            
-            showNotification(paste("Loading enriched pathway:", pathway_id), type = "message")
-            
-            # Create a mock pathway selection row similar to pathway_table format
-            selected_pathway <- data.frame(
-                pathway_id = pathway_id,
-                pathway_name = selected_row$Description,
-                description = selected_row$Description,
-                stringsAsFactors = FALSE
+            showNotification(
+                paste("Loaded enriched pathway with", nrow(pathway_data$nodes), "nodes!"), 
+                type = "message"
             )
             
-            values$selected_pathway <- selected_pathway
-            progress$set(value = 0.3)
+            # Switch to network tab to view
+            updateTabItems(session, "tabs", "network")
             
-            # Load pathway graph with HSA gene data
-            tryCatch({
-                progress$set(message = "Parsing pathway data...", value = 0.5)
-                pathway_data <- parse_kegg_pathway_with_hsa(pathway_id, use_cached = TRUE)
-                
-                progress$set(message = "Building network...", value = 0.7)
-                values$pathway_graph <- pathway_data$kegg_data
-                values$nodes <- pathway_data$nodes
-                values$edges <- pathway_data$edges
-                
-                progress$set(message = "Finalizing...", value = 0.9)
-                
-                showNotification(
-                    paste("Enriched pathway loaded successfully with", nrow(pathway_data$nodes), "network nodes!"), 
-                    type = "message"
-                )
-                
-                progress$set(value = 1.0)
-                
-                # Switch to network tab
-                updateTabItems(session, "tabs", "network")
-                
-            }, error = function(e) {
-                showNotification(paste("Error loading enriched pathway:", e$message), type = "warning")
-            })
-        }
+        }, error = function(e) {
+            showNotification(paste("Error loading pathway:", e$message), type = "error")
+        })
     })
-    
-    # Remove the old row selection observer since we now use a button
-    # observeEvent(input$enrichment_table_rows_selected, { ... }) - REMOVED
     
     # Pathway header for network visualization
     output$pathway_header <- renderUI({
