@@ -10,11 +10,38 @@ server <- function(input, output, session) {
         edges = NULL
     )
     
-    # Gene upload functionality
-    # Reactive values for uploaded genes
-    uploaded_genes <- reactiveVal(character(0))
-    converted_entrez_genes <- reactiveVal(character(0))  # Store Entrez IDs for KEGG operations
-    gene_id_type <- reactiveVal("entrez")  # Track the current gene ID type
+    # Centralized gene management - all genes stored internally as Entrez IDs
+    # Load centralized gene ID management system
+    source("R/gene_id_manager.R")
+    
+    # Reactive values for gene management
+    internal_genes <- reactiveVal(character(0))  # Always Entrez IDs (internal standard)
+    gene_mapping_info <- reactiveVal(data.frame())  # Mapping info for display
+    gene_conversion_stats <- reactiveVal(list())  # Conversion statistics
+    
+    # Helper functions for backward compatibility with existing code
+    # These return Entrez IDs (the internal standard) for all operations
+    uploaded_genes <- reactive({
+        # Returns Entrez IDs (internal standard)
+        internal_genes()
+    })
+    
+    converted_entrez_genes <- reactive({
+        # Returns Entrez IDs (internal standard) - same as uploaded_genes
+        internal_genes()
+    })
+    
+    gene_id_type <- reactive({
+        # Always return "entrez" since internally everything is Entrez
+        "entrez"
+    })
+    
+    # Function to get display symbols for user-friendly output
+    get_display_symbols <- reactive({
+        entrez_ids <- internal_genes()
+        if (length(entrez_ids) == 0) return(character(0))
+        return(entrez_to_symbols(entrez_ids, comprehensive_mapping))
+    })
     
     # Reactive values for gene validation
     gene_validation_results <- reactiveVal(NULL)
@@ -152,28 +179,35 @@ server <- function(input, output, session) {
         req(input$gene_file, input$gene_id_type)
         
         tryCatch({
-            genes <- load_gene_file(input$gene_file$datapath)
-            uploaded_genes(genes)
-            gene_id_type(input$gene_id_type)
+            # Load raw genes from file
+            raw_genes <- load_gene_file(input$gene_file$datapath)
             
-            # Automatically validate genes with the selected ID type
-            validation <- validate_gene_ids(genes, input$gene_id_type)
-            gene_validation_results(validation)
+            # Convert to internal standard (Entrez IDs) immediately
+            conversion_result <- convert_to_internal_standard(
+                gene_ids = raw_genes,
+                input_type = input$gene_id_type,
+                comprehensive_mapping = comprehensive_mapping
+            )
             
-            # Store converted Entrez IDs for KEGG pathway operations
-            if (!is.null(validation$entrez_mapping) && nrow(validation$entrez_mapping) > 0) {
-                entrez_ids <- validation$entrez_mapping$ENTREZID[!is.na(validation$entrez_mapping$ENTREZID)]
-                converted_entrez_genes(entrez_ids)
-                cat("Stored", length(entrez_ids), "Entrez IDs from uploaded file for KEGG pathway operations\n")
-            } else {
-                converted_entrez_genes(character(0))
-                cat("No valid Entrez IDs found from uploaded file\n")
-            }
+            # Store results in reactive values
+            internal_genes(conversion_result$entrez_ids)
+            gene_mapping_info(conversion_result$mapping_info)
+            gene_conversion_stats(conversion_result$conversion_stats)
             
+            # Show notification with conversion stats
+            stats <- conversion_result$conversion_stats
             showNotification(
-                paste("Loaded", length(genes), input$gene_id_type, "IDs from file"),
+                paste("Loaded", stats$input_count, input$gene_id_type, "IDs from file.",
+                      "Converted", stats$converted_count, "to Entrez IDs",
+                      paste0("(", round(stats$conversion_rate * 100, 1), "% success rate)")),
                 type = "message"
             )
+            
+            cat("Gene upload summary:\n")
+            cat("  Input:", stats$input_count, input$gene_id_type, "IDs\n")
+            cat("  Converted:", stats$converted_count, "to Entrez IDs\n")
+            cat("  Success rate:", round(stats$conversion_rate * 100, 1), "%\n")
+            
         }, error = function(e) {
             showNotification(
                 paste("Error loading file:", e$message),
@@ -186,7 +220,9 @@ server <- function(input, output, session) {
     observeEvent(input$gene_text, {
         # Just clear genes if text area is emptied
         if (is.null(input$gene_text) || input$gene_text == "") {
-            uploaded_genes(character(0))
+            internal_genes(character(0))
+            gene_mapping_info(data.frame())
+            gene_conversion_stats(list())
         }
     })
     
@@ -196,31 +232,37 @@ server <- function(input, output, session) {
         
         if (!is.null(input$gene_text) && input$gene_text != "") {
             tryCatch({
-                genes <- parse_gene_text(input$gene_text)
-                uploaded_genes(genes)
-                gene_id_type(input$gene_id_type)
+                # Parse genes from text
+                raw_genes <- parse_gene_text(input$gene_text)
                 
-                # Automatically validate genes with the selected ID type
-                validation <- validate_gene_ids(genes, input$gene_id_type)
-                gene_validation_results(validation)
+                # Convert to internal standard (Entrez IDs) immediately
+                conversion_result <- convert_to_internal_standard(
+                    gene_ids = raw_genes,
+                    input_type = input$gene_id_type,
+                    comprehensive_mapping = comprehensive_mapping
+                )
                 
-                # Store converted Entrez IDs for KEGG pathway operations
-                if (!is.null(validation$entrez_mapping) && nrow(validation$entrez_mapping) > 0) {
-                    entrez_ids <- validation$entrez_mapping$ENTREZID[!is.na(validation$entrez_mapping$ENTREZID)]
-                    converted_entrez_genes(entrez_ids)
-                    cat("Stored", length(entrez_ids), "Entrez IDs for KEGG pathway operations\n")
-                } else {
-                    converted_entrez_genes(character(0))
-                    cat("No valid Entrez IDs found for KEGG pathway operations\n")
-                }
+                # Store results in reactive values
+                internal_genes(conversion_result$entrez_ids)
+                gene_mapping_info(conversion_result$mapping_info)
+                gene_conversion_stats(conversion_result$conversion_stats)
                 
+                # Show notification with conversion stats
+                stats <- conversion_result$conversion_stats
                 showNotification(
-                    paste("Loaded", length(genes), input$gene_id_type, "IDs from text"),
+                    paste("Loaded", stats$input_count, input$gene_id_type, "IDs from text.",
+                          "Converted", stats$converted_count, "to Entrez IDs",
+                          paste0("(", round(stats$conversion_rate * 100, 1), "% success rate)")),
                     type = "message"
                 )
+                
+                cat("Text gene input summary:\n")
+                cat("  Input:", stats$input_count, input$gene_id_type, "IDs\n")
+                cat("  Converted:", stats$converted_count, "to Entrez IDs\n")
+                cat("  Success rate:", round(stats$conversion_rate * 100, 1), "%\n")
             }, error = function(e) {
                 showNotification(
-                    paste("Error parsing gene IDs:", e$message),
+                    paste("Error processing genes:", e$message),
                     type = "error"
                 )
             })
@@ -235,7 +277,9 @@ server <- function(input, output, session) {
     
     # Clear genes button
     observeEvent(input$clear_genes, {
-        uploaded_genes(character(0))
+        internal_genes(character(0))
+        gene_mapping_info(data.frame())
+        gene_conversion_stats(list())
         updateTextAreaInput(session, "gene_text", value = "")
         
         showNotification(
@@ -247,9 +291,10 @@ server <- function(input, output, session) {
     
     # Display uploaded genes table
     output$loaded_genes_table <- renderDT({
-        genes <- uploaded_genes()
+        entrez_genes <- internal_genes()
+        mapping_info <- gene_mapping_info()
         
-        if (length(genes) == 0) {
+        if (length(entrez_genes) == 0) {
             return(datatable(
                 data.frame(Message = "No gene IDs uploaded yet"),
                 options = list(pageLength = 5, searching = FALSE, info = FALSE, paging = FALSE),
@@ -257,29 +302,34 @@ server <- function(input, output, session) {
             ))
         }
         
-        # Create a summary table of uploaded genes
-        id_type <- gene_id_type()
-        id_type_label <- switch(id_type,
-                               "entrez" = "Entrez_ID",
-                               "symbol" = "Gene_Symbol",
-                               "ensembl" = "Ensembl_ID",
-                               "uniprot" = "UniProt_ID",
-                               "Gene_ID")
+        # Create display table with original IDs and their Entrez mappings
+        if (nrow(mapping_info) > 0) {
+            gene_df <- data.frame(
+                Original_ID = mapping_info$input_id,
+                Input_Type = mapping_info$input_type,
+                Entrez_ID = mapping_info$entrez_id,
+                Gene_Symbol = mapping_info$symbol,
+                Status = "Converted",
+                stringsAsFactors = FALSE
+            )
+        } else {
+            # Fallback if no mapping info (shouldn't happen with centralized system)
+            gene_df <- data.frame(
+                Original_ID = entrez_genes,
+                Input_Type = "entrez",
+                Entrez_ID = entrez_genes,
+                Gene_Symbol = entrez_genes,
+                Status = "Direct",
+                stringsAsFactors = FALSE
+            )
+        }
         
-        gene_df <- data.frame(
-            ID = genes,
-            Type = id_type_label,
-            Status = "Uploaded",
-            stringsAsFactors = FALSE
-        )
-        names(gene_df)[1] <- id_type_label
-        
-        # Enhanced phylomap matching using the fixed map_genes_to_phylostrata function
+        # Enhanced phylomap matching using Entrez IDs (internal standard)
         if (!is.null(phylomap_data)) {
-            # Use the enhanced map_genes_to_phylostrata function that handles duplicates properly
-            phylostrata_result <- map_genes_to_phylostrata(genes, id_type)
+            # Convert Entrez IDs to gene symbols for phylomap matching
+            gene_symbols <- entrez_to_symbols(entrez_genes, comprehensive_mapping)
+            phylostrata_result <- map_genes_to_phylostrata(gene_symbols, "symbol")
             
-            # Check if genes were successfully mapped (have non-NA phylostrata)
             gene_df$In_Phylomap <- ifelse(
                 !is.na(phylostrata_result), 
                 "Yes", 
@@ -310,39 +360,51 @@ server <- function(input, output, session) {
     
     # Gene statistics
     output$gene_stats <- renderText({
-        genes <- uploaded_genes()
-        entrez_ids <- converted_entrez_genes()
+        entrez_genes <- internal_genes()
+        mapping_info <- gene_mapping_info()
+        stats <- gene_conversion_stats()
         
-        if (length(genes) == 0) {
+        if (length(entrez_genes) == 0) {
             return("No genes uploaded")
         }
         
-        id_type_label <- switch(gene_id_type(),
-                               "entrez" = "Entrez IDs",
-                               "symbol" = "Gene Symbols",
-                               "ensembl" = "Ensembl IDs", 
-                               "uniprot" = "UniProt IDs",
-                               "Unknown")
-        
-        stats <- paste0(
-            "Total genes: ", length(genes), " (", id_type_label, ")",
-            " | Unique genes: ", length(unique(genes))
-        )
-        
-        # Add Entrez conversion info if not already Entrez IDs
-        if (gene_id_type() != "entrez" && length(entrez_ids) > 0) {
-            conversion_rate <- round(length(entrez_ids) / length(genes) * 100, 1)
-            stats <- paste0(stats, " | KEGG-ready: ", length(entrez_ids), " (", conversion_rate, "%)")
+        # Create comprehensive statistics using centralized data
+        if (length(stats) > 0) {
+            input_type_label <- if (nrow(mapping_info) > 0) {
+                unique_types <- unique(mapping_info$input_type)
+                if (length(unique_types) == 1) {
+                    switch(unique_types[1],
+                        "entrez" = "Entrez IDs",
+                        "symbol" = "Gene Symbols", 
+                        "ensembl" = "Ensembl IDs",
+                        "uniprot" = "UniProt IDs",
+                        "Mixed types"
+                    )
+                } else {
+                    "Mixed types"
+                }
+            } else {
+                "Unknown"
+            }
+            
+            stat_text <- paste0(
+                "Input: ", stats$input_count, " (", input_type_label, ")",
+                " | Converted to Entrez: ", stats$converted_count, " (", round(stats$conversion_rate * 100, 1), "%)",
+                " | KEGG-ready: ", length(entrez_genes)
+            )
+            
+            # Add phylomap overlap if available
+            if (!is.null(phylomap_data) && length(entrez_genes) > 0) {
+                gene_symbols <- entrez_to_symbols(entrez_genes, comprehensive_mapping)
+                phylomap_genes <- toupper(phylomap_data$GeneID)
+                overlap <- sum(toupper(gene_symbols) %in% phylomap_genes)
+                stat_text <- paste0(stat_text, " | In phylomap: ", overlap, " (", round(overlap/length(entrez_genes)*100, 1), "%)")
+            }
+            
+            return(stat_text)
+        } else {
+            return(paste0("Internal genes: ", length(entrez_genes), " (Entrez IDs)"))
         }
-        
-        # Add phylomap overlap if available
-        if (!is.null(phylomap_data)) {
-            phylomap_genes <- toupper(phylomap_data$GeneID)
-            overlap <- sum(toupper(genes) %in% phylomap_genes)
-            stats <- paste0(stats, " | In phylomap: ", overlap, " (", round(overlap/length(genes)*100, 1), "%)")
-        }
-        
-        return(stats)
     })
     
     # Helper function to get readable gene labels from network nodes
@@ -1475,12 +1537,17 @@ server <- function(input, output, session) {
     current_evolution_plot <- reactiveVal(NULL)
     evolution_plot_type <- reactiveVal("")
     
+    # Reactive values for gene selection in evolutionary plots
+    selected_evolution_genes <- reactiveVal(NULL)
+    evolution_gene_colors <- reactiveVal(NULL)
+    evolution_selection_message <- reactiveVal("")
+    
     # Load example expression data
     observeEvent(input$load_example_expr, {
         tryCatch({
             example_data <- load_example_expression_data()
             expression_data(example_data)
-            showNotification("Example expression data loaded successfully!", type = "success")
+            showNotification("Example expression data loaded successfully!", type = "message")
         }, error = function(e) {
             showNotification(paste("Error loading example data:", e$message), type = "error")
         })
@@ -1508,7 +1575,7 @@ server <- function(input, output, session) {
             }
             
             expression_data(data)
-            showNotification("Expression data uploaded successfully!", type = "success")
+            showNotification("Expression data uploaded successfully!", type = "message")
             
         }, error = function(e) {
             showNotification(paste("Error uploading expression data:", e$message), type = "error")
@@ -1541,10 +1608,130 @@ server <- function(input, output, session) {
             )
             
             phyloexpression_set(result)
-            showNotification("PhyloExpressionSet created successfully!", type = "success")
+            showNotification("PhyloExpressionSet created successfully!", type = "message")
             
         }, error = function(e) {
             showNotification(paste("Error creating PhyloExpressionSet:", e$message), type = "error")
+        })
+    })
+    
+    # Gene selection logic for evolutionary plots
+    observe({
+        req(input$gene_selection_type)
+        
+        tryCatch({
+            selection_type <- input$gene_selection_type
+            genes <- NULL
+            colors <- NULL
+            message <- ""
+            
+            if (selection_type == "all") {
+                message <- "Using all genes in the dataset"
+                
+            } else if (selection_type == "user_genes") {
+                user_entrez_ids <- internal_genes()  # Always Entrez IDs internally
+                
+                if (length(user_entrez_ids) > 0) {
+                    # Convert Entrez IDs to the expression data's expected format
+                    expr_gene_id_type <- input$expr_gene_id_type
+                    
+                    if (expr_gene_id_type == "entrez") {
+                        # Expression data expects Entrez - perfect match
+                        genes <- user_entrez_ids
+                        message <- paste("Using", length(genes), "genes from your uploaded gene set (Entrez IDs)")
+                    } else if (expr_gene_id_type == "symbol") {
+                        # Expression data expects symbols - convert from our internal Entrez
+                        if (!is.null(comprehensive_mapping)) {
+                            gene_symbols <- entrez_to_symbols(user_entrez_ids, comprehensive_mapping)
+                            genes <- as.character(gene_symbols)
+                            message <- paste("Converted", length(user_entrez_ids), "Entrez IDs to", length(genes), "gene symbols for expression analysis")
+                        } else {
+                            genes <- user_entrez_ids  # Fallback 
+                            message <- "Warning: Could not convert to symbols - using Entrez IDs (may cause matching issues)"
+                        }
+                    } else {
+                        # Other expression data formats - use Entrez as fallback
+                        genes <- user_entrez_ids
+                        message <- paste("Using", length(genes), "Entrez IDs for", expr_gene_id_type, "expression analysis (may cause matching issues)")
+                    }
+                } else {
+                    message <- "No genes uploaded in Gene Set tab. Please upload genes first."
+                }
+                
+            } else if (selection_type == "pathway_genes") {
+                if (!is.null(values$nodes) && nrow(values$nodes) > 0) {
+                    # Extract pathway genes as Entrez IDs (internal standard)
+                    pathway_entrez_ids <- extract_pathway_entrez_ids(values$nodes, comprehensive_mapping)
+                    
+                    if (length(pathway_entrez_ids) > 0) {
+                        expr_gene_id_type <- input$expr_gene_id_type
+                        
+                        if (expr_gene_id_type == "entrez") {
+                            genes <- pathway_entrez_ids
+                            message <- paste("Using", length(genes), "genes from the selected pathway (Entrez IDs)")
+                        } else if (expr_gene_id_type == "symbol") {
+                            gene_symbols <- entrez_to_symbols(pathway_entrez_ids, comprehensive_mapping)
+                            genes <- as.character(gene_symbols)
+                            message <- paste("Using", length(genes), "genes from the selected pathway (converted to symbols)")
+                        } else {
+                            genes <- pathway_entrez_ids  # Fallback
+                            message <- paste("Using", length(genes), "pathway genes as Entrez IDs for", expr_gene_id_type, "analysis")
+                        }
+                    } else {
+                        message <- "No genes extracted from the selected pathway"
+                    }
+                } else {
+                    message <- "No pathway loaded in Network tab. Please load a pathway first."
+                }
+                
+            } else if (selection_type == "network_interactions") {
+                req(input$selected_network_gene)
+                
+                if (!is.null(values$nodes) && !is.null(values$edges) && 
+                    nrow(values$nodes) > 0 && nrow(values$edges) > 0) {
+                    
+                    selected_gene <- trimws(input$selected_network_gene)
+                    if (nchar(selected_gene) > 0) {
+                        
+                        interaction_result <- get_interacting_genes(
+                            selected_gene = selected_gene,
+                            pathway_edges = values$edges,
+                            pathway_nodes = values$nodes,
+                            gene_id_type = input$expr_gene_id_type
+                        )
+                        
+                        if (length(interaction_result$interacting_genes) > 0) {
+                            # Include the selected gene plus its interactions
+                            genes <- c(selected_gene, interaction_result$interacting_genes)
+                            colors <- interaction_result$interaction_colors
+                            message <- interaction_result$message
+                        } else {
+                            message <- interaction_result$message
+                        }
+                    } else {
+                        message <- "Please enter a gene symbol"
+                    }
+                } else {
+                    message <- "No pathway network loaded. Please load a pathway first."
+                }
+            }
+            
+            # Update reactive values
+            selected_evolution_genes(genes)
+            evolution_gene_colors(colors)
+            evolution_selection_message(message)
+            
+            # Debug information
+            if (!is.null(genes) && length(genes) > 0) {
+                cat("Gene selection debug:\n")
+                cat("  Selection type:", selection_type, "\n")
+                cat("  Number of selected genes:", length(genes), "\n")
+                cat("  Expression data gene ID type:", input$expr_gene_id_type, "\n")
+                cat("  First few selected genes:", paste(head(genes, 5), collapse = ", "), "\n")
+            }
+            
+        }, error = function(e) {
+            evolution_selection_message(paste("Error in gene selection:", e$message))
         })
     })
     
@@ -1559,7 +1746,6 @@ server <- function(input, output, session) {
                                          title = "Transcriptome Age Index (TAI) Signature")
             current_evolution_plot(p)
             evolution_plot_type("TAI Signature")
-            showNotification("TAI signature plot created!", type = "message")
         }, error = function(e) {
             showNotification(paste("Error creating TAI signature plot:", e$message), type = "error")
         })
@@ -1570,11 +1756,12 @@ server <- function(input, output, session) {
         req(phyloexpression_set())
         
         tryCatch({
+            selected_genes <- selected_evolution_genes()
             p <- create_distribution_strata_plot(phyloexpression_set()$phyloset,
+                                               selected_genes = selected_genes,
                                                title = "Distribution of Phylostrata")
             current_evolution_plot(p)
             evolution_plot_type("Distribution of Phylostrata")
-            showNotification("Distribution strata plot created!", type = "message")
         }, error = function(e) {
             showNotification(paste("Error creating distribution strata plot:", e$message), type = "error")
         })
@@ -1585,11 +1772,12 @@ server <- function(input, output, session) {
         req(phyloexpression_set())
         
         tryCatch({
+            selected_genes <- selected_evolution_genes()
             p <- create_gene_heatmap_plot(phyloexpression_set()$phyloset,
+                                        selected_genes = selected_genes,
                                         title = "Gene Expression Heatmap by Phylostratum")
             current_evolution_plot(p)
             evolution_plot_type("Gene Expression Heatmap")
-            showNotification("Gene heatmap plot created!", type = "message")
         }, error = function(e) {
             showNotification(paste("Error creating gene heatmap plot:", e$message), type = "error")
         })
@@ -1604,7 +1792,6 @@ server <- function(input, output, session) {
                                         title = "Phylostratum Contribution to TAI")
             current_evolution_plot(p)
             evolution_plot_type("Phylostratum Contribution")
-            showNotification("Contribution plot created!", type = "message")
         }, error = function(e) {
             showNotification(paste("Error creating contribution plot:", e$message), type = "error")
         })
@@ -1619,7 +1806,6 @@ server <- function(input, output, session) {
                                       title = "Gene Space Analysis (PCA)")
             current_evolution_plot(p)
             evolution_plot_type("Gene Space Analysis")
-            showNotification("Gene space plot created!", type = "message")
         }, error = function(e) {
             showNotification(paste("Error creating gene space plot:", e$message), type = "error")
         })
@@ -1634,7 +1820,6 @@ server <- function(input, output, session) {
                                         title = "Sample Space Analysis (PCA)")
             current_evolution_plot(p)
             evolution_plot_type("Sample Space Analysis")
-            showNotification("Sample space plot created!", type = "message")
         }, error = function(e) {
             showNotification(paste("Error creating sample space plot:", e$message), type = "error")
         })
@@ -1645,11 +1830,15 @@ server <- function(input, output, session) {
         req(phyloexpression_set())
         
         tryCatch({
+            selected_genes <- selected_evolution_genes()
+            interaction_colors <- evolution_gene_colors()
+            
             p <- create_gene_profiles_plot(phyloexpression_set()$phyloset,
+                                         selected_genes = selected_genes,
+                                         interaction_colors = interaction_colors,
                                          title = "Gene Expression Profiles by Phylostratum")
             current_evolution_plot(p)
             evolution_plot_type("Gene Expression Profiles")
-            showNotification("Gene profiles plot created!", type = "message")
         }, error = function(e) {
             showNotification(paste("Error creating gene profiles plot:", e$message), type = "error")
         })
@@ -1772,6 +1961,30 @@ server <- function(input, output, session) {
         } else {
             DT::datatable(data.frame(Message = "Phylostratum legend data not available"))
         }
+    })
+    
+    # Gene selection status
+    output$evolution_selection_status <- renderText({
+        message <- evolution_selection_message()
+        selected_genes <- selected_evolution_genes()
+        
+        if (message == "" && is.null(selected_genes)) {
+            return("Preparing gene selection...")
+        }
+        
+        result <- message
+        
+        if (!is.null(selected_genes) && length(selected_genes) > 0) {
+            result <- paste0(result, "\n\nSelected genes (showing first 10):\n")
+            genes_to_show <- head(selected_genes, 10)
+            result <- paste0(result, paste(genes_to_show, collapse = ", "))
+            
+            if (length(selected_genes) > 10) {
+                result <- paste0(result, "\n... and ", length(selected_genes) - 10, " more genes")
+            }
+        }
+        
+        return(result)
     })
     
     # Dataset information

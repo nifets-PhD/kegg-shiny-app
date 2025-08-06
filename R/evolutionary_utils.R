@@ -295,19 +295,36 @@ create_tai_signature_plot <- function(bulk_phyloset, title = "TAI Signature", sh
     })
 }
 
-#' Create distribution of strata plot using myTAI
+#' Create distribution of phylostrata plot using myTAI
 #' @param bulk_phyloset myTAI BulkPhyloExpressionSet object
+#' @param selected_genes character vector of genes to include (optional)
 #' @param title character, plot title
 #' @return ggplot object
-create_distribution_strata_plot <- function(bulk_phyloset, title = "Distribution of Phylostrata") {
+create_distribution_strata_plot <- function(bulk_phyloset, selected_genes = NULL, title = "Distribution of Phylostrata") {
     if (!requireNamespace("myTAI", quietly = TRUE)) {
         stop("myTAI package is required")
     }
     
     tryCatch({
-        # Try different approaches for plotting distribution
-        # First try with the phyloset directly
-        myTAI::plot_distribution_strata(bulk_phyloset@strata) + ggplot2::labs(title = title)
+        if (!is.null(selected_genes) && length(selected_genes) > 0) {
+            # Filter selected genes to only those present in the phyloset
+            # Get the gene IDs from the phyloset using the correct slot
+            phyloset_genes <- bulk_phyloset@gene_ids
+            valid_selected_genes <- intersect(selected_genes, phyloset_genes)
+            
+            if (length(valid_selected_genes) > 0) {
+                cat("Using", length(valid_selected_genes), "out of", length(selected_genes), "selected genes for distribution plot\n")
+                # Use selected genes in myTAI plot_distribution_strata
+                p <- myTAI::plot_distribution_strata(bulk_phyloset@strata, selected_gene_ids = valid_selected_genes)
+            } else {
+                cat("None of the selected genes are present in the phyloset. Using all genes for distribution plot.\n")
+                p <- myTAI::plot_distribution_strata(bulk_phyloset@strata)
+            }
+        } else {
+            p <- myTAI::plot_distribution_strata(bulk_phyloset@strata)
+        }
+        p <- p + ggplot2::labs(title = title)
+        return(p)
     }, error = function(e) {
         stop("Error creating distribution strata plot: ", e$message)
     })
@@ -315,15 +332,32 @@ create_distribution_strata_plot <- function(bulk_phyloset, title = "Distribution
 
 #' Create gene heatmap plot using myTAI
 #' @param bulk_phyloset myTAI BulkPhyloExpressionSet object
+#' @param selected_genes character vector of genes to plot (optional)
 #' @param title character, plot title
 #' @return ggplot object
-create_gene_heatmap_plot <- function(bulk_phyloset, title = "Gene Expression Heatmap") {
+create_gene_heatmap_plot <- function(bulk_phyloset, selected_genes = NULL, title = "Gene Expression Heatmap") {
     if (!requireNamespace("myTAI", quietly = TRUE)) {
         stop("myTAI package is required")
     }
     
     tryCatch({
-        p <- myTAI::plot_gene_heatmap(bulk_phyloset)
+        if (!is.null(selected_genes) && length(selected_genes) > 0) {
+            # Filter selected genes to only those present in the phyloset
+            # Get the gene IDs from the phyloset using the correct slot
+            phyloset_genes <- bulk_phyloset@gene_ids
+            valid_selected_genes <- intersect(selected_genes, phyloset_genes)
+            
+            if (length(valid_selected_genes) > 0) {
+                cat("Using", length(valid_selected_genes), "out of", length(selected_genes), "selected genes for heatmap\n")
+                # Use selected genes parameter in myTAI plot_gene_heatmap
+                p <- myTAI::plot_gene_heatmap(bulk_phyloset, genes = valid_selected_genes)
+            } else {
+                cat("None of the selected genes are present in the phyloset. Using all genes for heatmap.\n")
+                p <- myTAI::plot_gene_heatmap(bulk_phyloset)
+            }
+        } else {
+            p <- myTAI::plot_gene_heatmap(bulk_phyloset)
+        }
         p <- p + ggplot2::labs(title = title)
         return(p)
     }, error = function(e) {
@@ -388,19 +422,46 @@ create_sample_space_plot <- function(bulk_phyloset, title = "Sample Space Analys
 #' Create gene profiles plot using myTAI
 #' @param bulk_phyloset myTAI BulkPhyloExpressionSet object
 #' @param selected_genes character vector of genes to plot (optional)
+#' @param interaction_colors named vector of colors for genes based on interactions (optional)
 #' @param title character, plot title
 #' @return ggplot object
-create_gene_profiles_plot <- function(bulk_phyloset, selected_genes = NULL, title = "Gene Expression Profiles") {
+create_gene_profiles_plot <- function(bulk_phyloset, selected_genes = NULL, interaction_colors = NULL, title = "Gene Expression Profiles") {
     if (!requireNamespace("myTAI", quietly = TRUE)) {
         stop("myTAI package is required")
     }
     
     tryCatch({
-        if (!is.null(selected_genes)) {
-            # Filter to selected genes using myTAI's select_genes method
-            filtered_set <- myTAI::select_genes(bulk_phyloset, selected_genes)
-            p <- myTAI::plot_gene_profiles(filtered_set)
+        if (!is.null(selected_genes) && length(selected_genes) > 0) {
+            # Filter selected genes to only those present in the phyloset
+            # Get the gene IDs from the phyloset using the correct slot
+            phyloset_genes <- bulk_phyloset@gene_ids
+            valid_selected_genes <- intersect(selected_genes, phyloset_genes)
+            
+            if (length(valid_selected_genes) > 0) {
+                cat("Using", length(valid_selected_genes), "out of", length(selected_genes), "selected genes that are present in phyloset\n")
+                
+                if (!is.null(interaction_colors) && length(interaction_colors) > 0) {
+                    # Filter colors to match valid genes
+                    valid_colors <- interaction_colors[names(interaction_colors) %in% valid_selected_genes]
+                    if (length(valid_colors) > 0) {
+                        # Use manual coloring with interaction colors
+                        p <- myTAI::plot_gene_profiles(bulk_phyloset, genes = valid_selected_genes, 
+                                                     colour_by = "manual", colours = valid_colors)
+                    } else {
+                        # Use default gene-based coloring
+                        p <- myTAI::plot_gene_profiles(bulk_phyloset, genes = valid_selected_genes)
+                    }
+                } else {
+                    # Use default gene-based coloring
+                    p <- myTAI::plot_gene_profiles(bulk_phyloset, genes = valid_selected_genes)
+                }
+            } else {
+                cat("None of the selected genes are present in the phyloset. Using all genes.\n")
+                # Use all genes with default settings
+                p <- myTAI::plot_gene_profiles(bulk_phyloset)
+            }
         } else {
+            # Use all genes with default settings
             p <- myTAI::plot_gene_profiles(bulk_phyloset)
         }
         p <- p + ggplot2::labs(title = title)
@@ -412,28 +473,169 @@ create_gene_profiles_plot <- function(bulk_phyloset, selected_genes = NULL, titl
 
 #' Get genes interacting with a selected gene from pathway data
 #' @param selected_gene character, gene identifier
-#' @param pathway_edges data.frame with pathway edge information
+#' @param pathway_edges data.frame with pathway edge information (from server.R values$edges)
+#' @param pathway_nodes data.frame with pathway node information (from server.R values$nodes)
 #' @param gene_id_type character, type of gene ID for matching
-#' @return list with interacting genes and interaction types
-get_interacting_genes <- function(selected_gene, pathway_edges = NULL, gene_id_type = "symbol") {
+#' @return list with interacting genes, interaction types, and colors
+get_interacting_genes <- function(selected_gene, pathway_edges = NULL, pathway_nodes = NULL, gene_id_type = "symbol") {
     
-    if (is.null(pathway_edges) || nrow(pathway_edges) == 0) {
+    if (is.null(pathway_edges) || nrow(pathway_edges) == 0 || 
+        is.null(pathway_nodes) || nrow(pathway_nodes) == 0) {
         return(list(
             interacting_genes = character(0),
             interaction_types = character(0),
+            interaction_colors = NULL,
             message = "No pathway interaction data available"
         ))
     }
     
-    # Find edges involving the selected gene
-    # This depends on the structure of pathway_edges
-    # For now, return empty result with informative message
+    # Find the node corresponding to the selected gene
+    selected_node_id <- NULL
+    
+    # Try different matching strategies based on gene_id_type
+    if (gene_id_type == "symbol") {
+        # Match by HGNC symbol
+        matches <- which(toupper(pathway_nodes$hgnc_symbol) == toupper(selected_gene) | 
+                        toupper(pathway_nodes$label) == toupper(selected_gene))
+    } else if (gene_id_type == "entrez") {
+        # Match by Entrez/KEGG ID
+        matches <- which(pathway_nodes$kegg_id == selected_gene)
+    } else {
+        # Generic matching
+        matches <- which(toupper(pathway_nodes$label) == toupper(selected_gene) |
+                        toupper(pathway_nodes$hgnc_symbol) == toupper(selected_gene))
+    }
+    
+    if (length(matches) == 0) {
+        return(list(
+            interacting_genes = character(0),
+            interaction_types = character(0),
+            interaction_colors = NULL,
+            message = paste("Gene", selected_gene, "not found in current pathway")
+        ))
+    }
+    
+    selected_node_id <- pathway_nodes$id[matches[1]]
+    
+    # Find all edges involving this node
+    incoming_edges <- pathway_edges[pathway_edges$to == selected_node_id, ]
+    outgoing_edges <- pathway_edges[pathway_edges$from == selected_node_id, ]
+    all_edges <- rbind(incoming_edges, outgoing_edges)
+    
+    if (nrow(all_edges) == 0) {
+        return(list(
+            interacting_genes = character(0),
+            interaction_types = character(0),
+            interaction_colors = NULL,
+            message = paste("No interactions found for gene", selected_gene)
+        ))
+    }
+    
+    # Get all interacting node IDs
+    interacting_node_ids <- unique(c(
+        all_edges$from[all_edges$to == selected_node_id],
+        all_edges$to[all_edges$from == selected_node_id]
+    ))
+    
+    # Remove the selected node itself
+    interacting_node_ids <- interacting_node_ids[interacting_node_ids != selected_node_id]
+    
+    # Get gene symbols for interacting nodes
+    interacting_nodes <- pathway_nodes[pathway_nodes$id %in% interacting_node_ids, ]
+    
+    # Prioritize HGNC symbols, fallback to labels
+    interacting_genes <- ifelse(
+        !is.na(interacting_nodes$hgnc_symbol) & interacting_nodes$hgnc_symbol != "",
+        interacting_nodes$hgnc_symbol,
+        interacting_nodes$label
+    )
+    
+    # Get interaction types and create color mapping
+    interaction_types <- character(0)
+    interaction_colors <- character(0)
+    
+    # Create color mapping based on edge relationships
+    edge_colors <- c(
+        "activation" = "#4CAF50",       # Green
+        "inhibition" = "#F44336",       # Red  
+        "binding" = "#2196F3",          # Blue
+        "expression" = "#FF9800",       # Orange
+        "catalysis" = "#9C27B0",        # Purple
+        "reaction" = "#607D8B",         # Blue-grey
+        "unknown" = "#9E9E9E"           # Grey
+    )
+    
+    for (i in seq_along(interacting_genes)) {
+        node_id <- interacting_nodes$id[i]
+        gene_name <- interacting_genes[i]
+        
+        # Find edges involving this gene
+        gene_edges <- all_edges[all_edges$from == node_id | all_edges$to == node_id, ]
+        
+        if (nrow(gene_edges) > 0) {
+            # Use the most common relationship type or first one
+            relationship <- gene_edges$relationship[1]
+            interaction_types <- c(interaction_types, relationship)
+            
+            # Assign color based on relationship
+            color <- edge_colors[relationship]
+            if (is.na(color)) {
+                color <- edge_colors["unknown"]
+            }
+            interaction_colors <- c(interaction_colors, color)
+        } else {
+            interaction_types <- c(interaction_types, "unknown")
+            interaction_colors <- c(interaction_colors, edge_colors["unknown"])
+        }
+    }
+    
+    # Create named color vector for myTAI plotting
+    names(interaction_colors) <- interacting_genes
+    
+    # Include the selected gene itself with a special color
+    all_genes <- c(selected_gene, interacting_genes)
+    all_colors <- c("#000000", interaction_colors)  # Black for selected gene
+    names(all_colors) <- all_genes
     
     return(list(
-        interacting_genes = character(0),
-        interaction_types = character(0),
-        message = paste("Interaction analysis for", selected_gene, "not yet implemented")
+        interacting_genes = interacting_genes,
+        interaction_types = interaction_types,
+        interaction_colors = all_colors,
+        selected_gene = selected_gene,
+        message = paste("Found", length(interacting_genes), "interacting genes for", selected_gene)
     ))
+}
+
+#' Get genes from pathway nodes
+#' @param pathway_nodes data.frame with pathway node information
+#' @param gene_id_type character, preferred gene ID type to return
+#' @return character vector of gene IDs from the pathway
+get_pathway_genes <- function(pathway_nodes = NULL, gene_id_type = "symbol") {
+    
+    if (is.null(pathway_nodes) || nrow(pathway_nodes) == 0) {
+        return(character(0))
+    }
+    
+    # Extract genes based on preferred ID type
+    if (gene_id_type == "symbol") {
+        # Prioritize HGNC symbols, fallback to labels
+        genes <- ifelse(
+            !is.na(pathway_nodes$hgnc_symbol) & pathway_nodes$hgnc_symbol != "",
+            pathway_nodes$hgnc_symbol,
+            pathway_nodes$label
+        )
+    } else if (gene_id_type == "entrez") {
+        # Use KEGG IDs (which are often Entrez-based)
+        genes <- pathway_nodes$kegg_id
+    } else {
+        # Default to labels
+        genes <- pathway_nodes$label
+    }
+    
+    # Remove empty or NA values
+    genes <- genes[!is.na(genes) & genes != ""]
+    
+    return(unique(genes))
 }
 
 #' Generate summary statistics for phylostratum mapping
@@ -447,16 +649,9 @@ format_mapping_summary <- function(mapping_stats) {
     summary_lines <- c(
         paste("Total genes:", mapping_stats$n_total),
         paste("Successfully mapped:", mapping_stats$n_mapped),
-        paste("Mapping rate:", mapping_stats$mapping_rate, "%"),
-        "",
-        "Phylostrata distribution:"
+        paste("Mapping rate:", mapping_stats$mapping_rate, "%")
     )
     
-    if (!is.null(mapping_stats$strata_distribution)) {
-        strata_lines <- paste("  Stratum", names(mapping_stats$strata_distribution), ":",
-                             mapping_stats$strata_distribution, "genes")
-        summary_lines <- c(summary_lines, strata_lines)
-    }
-    
+    # Don't include phylostrata distribution in summary
     return(summary_lines)
 }

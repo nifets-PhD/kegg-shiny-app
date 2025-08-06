@@ -85,16 +85,9 @@ ui <- dashboardPage(
                         condition = "output.genes_loaded",
                         box(
                             title = "Loaded Gene List", status = "success", solidHeader = TRUE,
-                            width = 8, collapsible = TRUE,
+                            width = 12, collapsible = TRUE,
                             
                             DT::dataTableOutput("loaded_genes_table")
-                        ),
-                        
-                        box(
-                            title = "Gene Validation Results", status = "info", solidHeader = TRUE,
-                            width = 4, collapsible = TRUE,
-                            
-                            verbatimTextOutput("gene_validation")
                         )
                     )
                 )
@@ -483,6 +476,65 @@ ui <- dashboardPage(
                             h4("Select Visualization Type"),
                             p("Explore different aspects of transcriptomic age in your dataset:"),
                             
+                            # Gene Selection Options
+                            div(style = "background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #dee2e6;",
+                                h5(style = "margin-top: 0; color: #495057;", "🎯 Gene Selection Options"),
+                                p(style = "margin-bottom: 15px; color: #6c757d; font-size: 14px;", 
+                                  "Choose which genes to highlight in your plots:"),
+                                
+                                fluidRow(
+                                    column(6,
+                                        radioButtons("gene_selection_type", NULL,
+                                                   choices = list(
+                                                       "All genes (default)" = "all",
+                                                       "My uploaded gene set" = "user_genes",
+                                                       "Genes from selected pathway" = "pathway_genes",
+                                                       "Selected network node + interactions" = "network_interactions"
+                                                   ),
+                                                   selected = "all",
+                                                   inline = FALSE)
+                                    ),
+                                    column(6,
+                                        # Conditional inputs based on selection type
+                                        conditionalPanel(
+                                            condition = "input.gene_selection_type == 'network_interactions'",
+                                            textInput("selected_network_gene", "Enter Gene Symbol:",
+                                                    placeholder = "e.g., TP53, EGFR, BRCA1"),
+                                            helpText("Must match a gene in the current pathway network")
+                                        ),
+                                        
+                                        conditionalPanel(
+                                            condition = "input.gene_selection_type != 'all'",
+                                            div(style = "margin-top: 10px;",
+                                                span(style = "font-size: 12px; color: #6c757d;",
+                                                     conditionalPanel(
+                                                         condition = "input.gene_selection_type == 'user_genes'",
+                                                         "Uses genes from your Gene Set tab"
+                                                     ),
+                                                     conditionalPanel(
+                                                         condition = "input.gene_selection_type == 'pathway_genes'",
+                                                         "Uses genes from the pathway loaded in Network tab"
+                                                     ),
+                                                     conditionalPanel(
+                                                         condition = "input.gene_selection_type == 'network_interactions'",
+                                                         "Colors genes by interaction type with selected node"
+                                                     )
+                                                )
+                                            )
+                                        )
+                                    )
+                                )
+                            ),
+                            
+                            # Gene selection status
+                            conditionalPanel(
+                                condition = "input.gene_selection_type != 'all'",
+                                div(style = "background: #e9ecef; padding: 10px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid #6c757d;",
+                                    h6(style = "margin: 0; color: #495057;", "🔍 Gene Selection Status"),
+                                    verbatimTextOutput("evolution_selection_status", placeholder = FALSE)
+                                )
+                            ),
+                            
                             fluidRow(
                                 column(4,
                                     h5("Primary Analyses"),
@@ -516,7 +568,7 @@ ui <- dashboardPage(
                                     h5("Advanced Analyses"),
                                     actionButton("plot_gene_space", "Gene Space", 
                                                class = "btn-info btn-block",
-                                               icon = icon("chart-scatter"),
+                                               icon = icon("project-diagram"),
                                                style = "margin-bottom: 5px;"),
                                     helpText("PCA of genes colored by phylostratum"),
                                     
