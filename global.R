@@ -42,6 +42,12 @@ for (pkg in required_bioc_packages) {
     }
 }
 
+# Check and install myTAI if needed
+if (!requireNamespace("myTAI", quietly = TRUE)) {
+    cat("Installing myTAI...\n")
+    BiocManager::install("myTAI", ask = FALSE, update = FALSE)
+}
+
 # Install additional CRAN dependencies that might be needed
 required_cran_packages <- c("igraph", "tidyr", "stringr")
 for (pkg in required_cran_packages) {
@@ -59,5 +65,6 @@ library(org.Hs.eg.db)
 source("R/kegg_utils.R")
 source("R/network_utils.R")
 source("R/enrichment_utils.R")
+source("R/evolutionary_utils.R")
 
 # Note: Gene mapping data is loaded on-demand to improve startup speed

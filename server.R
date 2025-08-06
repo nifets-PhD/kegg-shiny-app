@@ -1464,4 +1464,346 @@ server <- function(input, output, session) {
             ))
         }
     })
+    
+    # ================================================================
+    # EVOLUTIONARY TRANSCRIPTOMICS TAB
+    # ================================================================
+    
+    # Reactive values for evolutionary transcriptomics
+    expression_data <- reactiveVal(NULL)
+    phyloexpression_set <- reactiveVal(NULL)
+    current_evolution_plot <- reactiveVal(NULL)
+    evolution_plot_type <- reactiveVal("")
+    
+    # Load example expression data
+    observeEvent(input$load_example_expr, {
+        tryCatch({
+            example_data <- load_example_expression_data()
+            expression_data(example_data)
+            showNotification("Example expression data loaded successfully!", type = "success")
+        }, error = function(e) {
+            showNotification(paste("Error loading example data:", e$message), type = "error")
+        })
+    })
+    
+    # Handle expression file upload
+    observeEvent(input$expression_file, {
+        req(input$expression_file)
+        
+        tryCatch({
+            file_ext <- tools::file_ext(input$expression_file$datapath)
+            
+            if (file_ext %in% c("csv")) {
+                data <- read.csv(input$expression_file$datapath, stringsAsFactors = FALSE)
+            } else if (file_ext %in% c("tsv", "txt")) {
+                data <- read.table(input$expression_file$datapath, header = TRUE, sep = "\t", 
+                                 stringsAsFactors = FALSE, quote = '"')
+            } else {
+                stop("Unsupported file format. Please use CSV or TSV files.")
+            }
+            
+            # Validate the data structure
+            if (ncol(data) < 2) {
+                stop("Expression data must have at least 2 columns (gene IDs + 1 sample)")
+            }
+            
+            expression_data(data)
+            showNotification("Expression data uploaded successfully!", type = "success")
+            
+        }, error = function(e) {
+            showNotification(paste("Error uploading expression data:", e$message), type = "error")
+        })
+    })
+    
+    # Create PhyloExpressionSet
+    observeEvent(input$create_phyloset, {
+        req(expression_data())
+        
+        tryCatch({
+            # Parse sample groups if provided
+            groups <- NULL
+            if (!is.null(input$sample_groups) && nchar(trimws(input$sample_groups)) > 0) {
+                groups <- trimws(strsplit(input$sample_groups, ",")[[1]])
+                
+                # Validate groups length
+                n_samples <- ncol(expression_data()) - 1
+                if (length(groups) != n_samples) {
+                    stop(paste("Number of groups (", length(groups), ") must match number of samples (", n_samples, ")"))
+                }
+            }
+            
+            # Create the phyloset using our function
+            result <- create_bulk_phyloexpression_set(
+                expression_data = expression_data(),
+                gene_id_type = input$expr_gene_id_type,
+                groups = groups,
+                name = "User Expression Dataset"
+            )
+            
+            phyloexpression_set(result)
+            showNotification("PhyloExpressionSet created successfully!", type = "success")
+            
+        }, error = function(e) {
+            showNotification(paste("Error creating PhyloExpressionSet:", e$message), type = "error")
+        })
+    })
+    
+    # Plotting functions for different visualization types
+    
+    # TAI Signature plot
+    observeEvent(input$plot_tai_signature, {
+        req(phyloexpression_set())
+        
+        tryCatch({
+            p <- create_tai_signature_plot(phyloexpression_set()$phyloset, 
+                                         title = "Transcriptome Age Index (TAI) Signature")
+            current_evolution_plot(p)
+            evolution_plot_type("TAI Signature")
+            showNotification("TAI signature plot created!", type = "message")
+        }, error = function(e) {
+            showNotification(paste("Error creating TAI signature plot:", e$message), type = "error")
+        })
+    })
+    
+    # Distribution of strata plot
+    observeEvent(input$plot_distribution_strata, {
+        req(phyloexpression_set())
+        
+        tryCatch({
+            p <- create_distribution_strata_plot(phyloexpression_set()$phyloset,
+                                               title = "Distribution of Phylostrata")
+            current_evolution_plot(p)
+            evolution_plot_type("Distribution of Phylostrata")
+            showNotification("Distribution strata plot created!", type = "message")
+        }, error = function(e) {
+            showNotification(paste("Error creating distribution strata plot:", e$message), type = "error")
+        })
+    })
+    
+    # Gene heatmap plot
+    observeEvent(input$plot_gene_heatmap, {
+        req(phyloexpression_set())
+        
+        tryCatch({
+            p <- create_gene_heatmap_plot(phyloexpression_set()$phyloset,
+                                        title = "Gene Expression Heatmap by Phylostratum")
+            current_evolution_plot(p)
+            evolution_plot_type("Gene Expression Heatmap")
+            showNotification("Gene heatmap plot created!", type = "message")
+        }, error = function(e) {
+            showNotification(paste("Error creating gene heatmap plot:", e$message), type = "error")
+        })
+    })
+    
+    # Contribution plot
+    observeEvent(input$plot_contribution, {
+        req(phyloexpression_set())
+        
+        tryCatch({
+            p <- create_contribution_plot(phyloexpression_set()$phyloset,
+                                        title = "Phylostratum Contribution to TAI")
+            current_evolution_plot(p)
+            evolution_plot_type("Phylostratum Contribution")
+            showNotification("Contribution plot created!", type = "message")
+        }, error = function(e) {
+            showNotification(paste("Error creating contribution plot:", e$message), type = "error")
+        })
+    })
+    
+    # Gene space plot
+    observeEvent(input$plot_gene_space, {
+        req(phyloexpression_set())
+        
+        tryCatch({
+            p <- create_gene_space_plot(phyloexpression_set()$phyloset,
+                                      title = "Gene Space Analysis (PCA)")
+            current_evolution_plot(p)
+            evolution_plot_type("Gene Space Analysis")
+            showNotification("Gene space plot created!", type = "message")
+        }, error = function(e) {
+            showNotification(paste("Error creating gene space plot:", e$message), type = "error")
+        })
+    })
+    
+    # Sample space plot
+    observeEvent(input$plot_sample_space, {
+        req(phyloexpression_set())
+        
+        tryCatch({
+            p <- create_sample_space_plot(phyloexpression_set()$phyloset,
+                                        title = "Sample Space Analysis (PCA)")
+            current_evolution_plot(p)
+            evolution_plot_type("Sample Space Analysis")
+            showNotification("Sample space plot created!", type = "message")
+        }, error = function(e) {
+            showNotification(paste("Error creating sample space plot:", e$message), type = "error")
+        })
+    })
+    
+    # Gene profiles plot
+    observeEvent(input$plot_gene_profiles, {
+        req(phyloexpression_set())
+        
+        tryCatch({
+            p <- create_gene_profiles_plot(phyloexpression_set()$phyloset,
+                                         title = "Gene Expression Profiles by Phylostratum")
+            current_evolution_plot(p)
+            evolution_plot_type("Gene Expression Profiles")
+            showNotification("Gene profiles plot created!", type = "message")
+        }, error = function(e) {
+            showNotification(paste("Error creating gene profiles plot:", e$message), type = "error")
+        })
+    })
+    
+    # Clear evolution plot
+    observeEvent(input$clear_evolution_plot, {
+        current_evolution_plot(NULL)
+        evolution_plot_type("")
+        showNotification("Plot cleared.", type = "message")
+    })
+    
+    # Reactive outputs for evolutionary transcriptomics tab
+    
+    # Expression data loaded indicator
+    output$expression_loaded <- reactive({
+        !is.null(expression_data())
+    })
+    outputOptions(output, "expression_loaded", suspendWhenHidden = FALSE)
+    
+    # PhyloExpressionSet created indicator
+    output$phyloset_created <- reactive({
+        !is.null(phyloexpression_set())
+    })
+    outputOptions(output, "phyloset_created", suspendWhenHidden = FALSE)
+    
+    # Evolution plot ready indicator
+    output$evolution_plot_ready <- reactive({
+        !is.null(current_evolution_plot())
+    })
+    outputOptions(output, "evolution_plot_ready", suspendWhenHidden = FALSE)
+    
+    # Expression data summary
+    output$expression_summary <- renderText({
+        req(expression_data())
+        data <- expression_data()
+        
+        paste(
+            paste("Genes:", nrow(data)),
+            paste("Samples:", ncol(data) - 1),
+            paste("Gene ID type:", input$expr_gene_id_type),
+            sep = "\n"
+        )
+    })
+    
+    # PhyloExpressionSet summary
+    output$phyloset_summary <- renderText({
+        req(phyloexpression_set())
+        
+        stats <- phyloexpression_set()$mapping_stats
+        summary_lines <- format_mapping_summary(stats)
+        paste(summary_lines, collapse = "\n")
+    })
+    
+    # Evolution plot title
+    output$evolution_plot_title <- renderText({
+        req(current_evolution_plot())
+        paste0("<h3 style='margin-bottom: 20px; color: #2c3e50;'>", evolution_plot_type(), "</h3>")
+    })
+    
+    # Evolution plot
+    output$evolution_plot <- renderPlot({
+        req(current_evolution_plot())
+        current_evolution_plot()
+    })
+    
+    # Evolution strata legend table
+    output$evolution_strata_legend <- DT::renderDataTable({
+        strata_legend <- load_strata_legend()
+        if (!is.null(strata_legend)) {
+            # Generate colors for phylostrata like in network tab
+            max_stratum <- max(strata_legend$Rank)
+            all_colors <- PS_colours(max_stratum)
+            
+            # Create legend data frame with colors
+            legend_df <- data.frame(
+                Rank = strata_legend$Rank,
+                Name = strata_legend$Name,
+                Color = all_colors[strata_legend$Rank],
+                stringsAsFactors = FALSE
+            )
+            
+            # Create colored table like in network tab
+            DT::datatable(
+                legend_df[, c("Rank", "Name")],  # Show rank and name columns
+                options = list(
+                    pageLength = 28,  # Show all strata
+                    paging = FALSE,   # Disable paging
+                    searching = FALSE, # Disable search
+                    info = FALSE,     # Hide table info
+                    dom = 't',        # Only show table
+                    scrollY = '350px',
+                    scrollCollapse = TRUE,
+                    columnDefs = list(
+                        list(width = '40px', targets = 0, className = 'text-center'),  # Rank column
+                        list(width = '160px', targets = 1)  # Name column
+                    )
+                ),
+                rownames = FALSE,
+                colnames = c("PS", "Evolutionary Stage")
+            ) %>%
+            DT::formatStyle(
+                "Rank",
+                backgroundColor = DT::styleEqual(
+                    legend_df$Rank,
+                    legend_df$Color
+                ),
+                color = DT::styleEqual(
+                    legend_df$Rank,
+                    sapply(legend_df$Color, function(color) {
+                        if (is.na(color)) return("#000000")
+                        # Calculate brightness to determine text color
+                        rgb_vals <- col2rgb(color)
+                        brightness <- (rgb_vals[1] * 0.299 + rgb_vals[2] * 0.587 + rgb_vals[3] * 0.114) / 255
+                        if (brightness < 0.5) "#FFFFFF" else "#000000"
+                    })
+                ),
+                fontWeight = "bold"
+            )
+        } else {
+            DT::datatable(data.frame(Message = "Phylostratum legend data not available"))
+        }
+    })
+    
+    # Dataset information
+    output$evolution_dataset_info <- renderText({
+        req(expression_data(), phyloexpression_set())
+        
+        data <- expression_data()
+        stats <- phyloexpression_set()$mapping_stats
+        
+        paste(
+            paste("Original genes:", stats$n_total),
+            paste("Mapped to phylostrata:", stats$n_mapped),
+            paste("Mapping success:", stats$mapping_rate, "%"),
+            paste("Phylostrata represented:", length(stats$strata_distribution)),
+            "",
+            "Sample information:",
+            paste("Total samples:", ncol(data) - 1),
+            paste("Sample names:", paste(names(data)[-1], collapse = ", ")),
+            sep = "\n"
+        )
+    })
+    
+    # Download evolution plot
+    output$download_evolution_plot <- downloadHandler(
+        filename = function() {
+            plot_type <- gsub("[^A-Za-z0-9_-]", "_", evolution_plot_type())
+            paste0("evolution_", plot_type, "_", Sys.Date(), ".png")
+        },
+        content = function(file) {
+            req(current_evolution_plot())
+            ggsave(file, plot = current_evolution_plot(), 
+                   width = 12, height = 8, dpi = 300, bg = "white")
+        }
+    )
 }

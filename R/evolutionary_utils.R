@@ -224,7 +224,6 @@ create_bulk_phyloexpression_set <- function(expression_data,
         cat("  Total genes input:", mapping_stats$n_total, "\n")
         cat("  Genes mapped to phylostrata:", mapping_stats$n_mapped, "\n")
         cat("  Mapping rate:", mapping_stats$mapping_rate, "%\n")
-        cat("  Phylostrata represented:", paste(names(mapping_stats$strata_distribution), collapse = ", "), "\n")
         
         return(list(
             phyloset = bulk_set,
