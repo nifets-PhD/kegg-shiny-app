@@ -1786,15 +1786,6 @@ server <- function(input, output, session) {
             evolution_gene_colors(colors)
             evolution_selection_message(message)
             
-            # Debug information
-            if (!is.null(genes) && length(genes) > 0) {
-                cat("Gene selection debug:\n")
-                cat("  Selection type:", selection_type, "\n")
-                cat("  Number of selected genes:", length(genes), "\n")
-                cat("  Expression data gene ID type:", input$expr_gene_id_type, "\n")
-                cat("  First few selected genes:", paste(head(genes, 5), collapse = ", "), "\n")
-            }
-            
         }, error = function(e) {
             evolution_selection_message(paste("Error in gene selection:", e$message))
         })
@@ -1929,6 +1920,147 @@ server <- function(input, output, session) {
         !is.null(phyloexpression_set())
     })
     outputOptions(output, "phyloset_created", suspendWhenHidden = FALSE)
+    
+    # Pathway expression plot for integrated visualization
+    output$pathway_expression_plot <- renderPlot({
+        req(phyloexpression_set(), values$nodes)
+        
+        tryCatch({
+            phyloset <- phyloexpression_set()$phyloset
+            coloring_mode <- input$node_coloring
+            selected_node_id <- input$pathway_network_selected
+            
+            # Get pathway genes (use hgnc_symbol for matching with expression data)
+            pathway_genes <- NULL
+            if (!is.null(values$nodes) && nrow(values$nodes) > 0) {
+                if ("hgnc_symbol" %in% colnames(values$nodes)) {
+                    pathway_genes <- values$nodes$hgnc_symbol
+                    pathway_genes <- pathway_genes[!is.na(pathway_genes) & pathway_genes != ""]
+                }
+            }
+            
+            if (is.null(pathway_genes) || length(pathway_genes) == 0) {
+                return(ggplot() + 
+                    geom_text(aes(x = 0.5, y = 0.5), 
+                             label = "No genes found in current pathway", 
+                             size = 5, color = "gray50") +
+                    xlim(0, 1) + ylim(0, 1) + theme_void())
+            }
+            
+            # Filter pathway genes to those present in phyloset
+            phyloset_genes <- phyloset@gene_ids
+            valid_pathway_genes <- intersect(pathway_genes, phyloset_genes)
+            
+            if (length(valid_pathway_genes) == 0) {
+                return(ggplot() + 
+                    geom_text(aes(x = 0.5, y = 0.5), 
+                             label = "No pathway genes found in expression dataset", 
+                             size = 5, color = "gray50") +
+                    xlim(0, 1) + ylim(0, 1) + theme_void())
+            }
+            
+            # Determine what genes and colors to use based on selection and coloring mode
+            if (!is.null(selected_node_id) && length(selected_node_id) > 0 && selected_node_id != "") {
+                # NODE SELECTED: Show selected node + connections
+                selected_node <- values$nodes[values$nodes$id == selected_node_id, ]
+                
+                if (nrow(selected_node) > 0) {
+                    # Get selected gene
+                    selected_gene <- selected_node$hgnc_symbol[1]
+                    
+                    if (!is.na(selected_gene) && selected_gene != "") {
+                        # Use the get_interacting_genes function to get proper colors
+                        interaction_data <- get_interacting_genes(
+                            selected_gene = selected_gene,
+                            pathway_edges = values$edges,
+                            pathway_nodes = values$nodes,
+                            gene_id_type = "symbol"
+                        )
+                        
+                        # Get all genes to plot (selected + interacting)
+                        all_genes_to_plot <- c(selected_gene, interaction_data$interacting_genes)
+                        
+                        # Filter to genes present in phyloset
+                        all_genes_to_plot <- intersect(all_genes_to_plot, phyloset_genes)
+                        
+                        if (length(all_genes_to_plot) > 0) {
+                            # Use the interaction colors from get_interacting_genes
+                            gene_colors <- interaction_data$interaction_colors
+                            
+                            # Filter colors to only genes present in phyloset
+                            gene_colors <- gene_colors[names(gene_colors) %in% all_genes_to_plot]
+                            
+                            # Additional validation
+                            if (any(is.na(names(gene_colors))) || any(names(gene_colors) == "")) {
+                                valid_color_indices <- !is.na(names(gene_colors)) & names(gene_colors) != ""
+                                gene_colors <- gene_colors[valid_color_indices]
+                            }
+                            
+                            # Create the plot
+                            p <- create_gene_profiles_plot(phyloset,
+                                                         selected_genes = all_genes_to_plot,
+                                                         interaction_colors = gene_colors,
+                                                         title = paste0("Expression Profiles: ", selected_gene, " + ", 
+                                                                       length(interaction_data$interacting_genes), " connections"))
+                            return(p)
+                        }
+                    }
+                }
+            } else {
+                # NO NODE SELECTED: Show profiles of all pathway genes
+                
+                if (coloring_mode == "kegg_default") {
+                    # KEGG Default: Show gene heatmap instead of profiles
+                    p <- create_gene_heatmap_plot(phyloset,
+                                                selected_genes = valid_pathway_genes,
+                                                title = paste0("Gene Expression Heatmap (", length(valid_pathway_genes), " pathway genes)"))
+                    return(p)
+                    
+                } else if (coloring_mode == "highlight_genes") {
+                    # Highlight uploaded genes: red for uploaded, green for others
+                    uploaded_genes <- internal_genes()  # Get uploaded Entrez IDs
+                    uploaded_symbols <- entrez_to_symbols(uploaded_genes, comprehensive_mapping)
+                    
+                    gene_colors <- rep("green3", length(valid_pathway_genes))
+                    names(gene_colors) <- valid_pathway_genes
+                    
+                    # Color uploaded genes red
+                    uploaded_in_pathway <- intersect(uploaded_symbols, valid_pathway_genes)
+                    if (length(uploaded_in_pathway) > 0) {
+                        gene_colors[uploaded_in_pathway] <- "red"
+                    }
+                    
+                    p <- create_gene_profiles_plot(phyloset,
+                                                 selected_genes = valid_pathway_genes,
+                                                 interaction_colors = gene_colors,
+                                                 title = paste0("Expression Profiles (", length(uploaded_in_pathway), " highlighted, ", 
+                                                               length(valid_pathway_genes) - length(uploaded_in_pathway), " others)"))
+                    return(p)
+                    
+                } else {
+                    # Phylostratum: Show gene heatmap colored by phylostratum
+                    p <- create_gene_heatmap_plot(phyloset,
+                                                selected_genes = valid_pathway_genes,
+                                                title = paste0("Gene Expression Heatmap (", length(valid_pathway_genes), " pathway genes)"))
+                    return(p)
+                }
+            }
+            
+            # Fallback
+            return(ggplot() + 
+                geom_text(aes(x = 0.5, y = 0.5), 
+                         label = "Unable to create expression profiles", 
+                         size = 5, color = "gray50") +
+                xlim(0, 1) + ylim(0, 1) + theme_void())
+                
+        }, error = function(e) {
+            return(ggplot() + 
+                geom_text(aes(x = 0.5, y = 0.5), 
+                         label = paste0("Error: ", e$message), 
+                         size = 4, color = "red") +
+                xlim(0, 1) + ylim(0, 1) + theme_void())
+        })
+    })
     
     # Evolution plot ready indicator
     output$evolution_plot_ready <- reactive({

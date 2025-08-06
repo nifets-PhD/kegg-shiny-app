@@ -350,7 +350,7 @@ create_gene_heatmap_plot <- function(bulk_phyloset, selected_genes = NULL, title
             if (length(valid_selected_genes) > 0) {
                 cat("Using", length(valid_selected_genes), "out of", length(selected_genes), "selected genes for heatmap\n")
                 # Use selected genes parameter in myTAI plot_gene_heatmap
-                p <- myTAI::plot_gene_heatmap(bulk_phyloset, genes = valid_selected_genes)
+                p <- myTAI::plot_gene_heatmap(bulk_phyloset, genes = valid_selected_genes, show_gene_ids=TRUE, cluster_rows=TRUE, std=FALSE)
             } else {
                 cat("None of the selected genes are present in the phyloset. Using all genes for heatmap.\n")
                 p <- myTAI::plot_gene_heatmap(bulk_phyloset)
@@ -433,16 +433,14 @@ create_gene_profiles_plot <- function(bulk_phyloset, selected_genes = NULL, inte
     tryCatch({
         if (!is.null(selected_genes) && length(selected_genes) > 0) {
             # Filter selected genes to only those present in the phyloset
-            # Get the gene IDs from the phyloset using the correct slot
             phyloset_genes <- bulk_phyloset@gene_ids
             valid_selected_genes <- intersect(selected_genes, phyloset_genes)
             
             if (length(valid_selected_genes) > 0) {
-                cat("Using", length(valid_selected_genes), "out of", length(selected_genes), "selected genes that are present in phyloset\n")
-                
                 if (!is.null(interaction_colors) && length(interaction_colors) > 0) {
                     # Filter colors to match valid genes
                     valid_colors <- interaction_colors[names(interaction_colors) %in% valid_selected_genes]
+                    
                     if (length(valid_colors) > 0) {
                         # Use manual coloring with interaction colors
                         p <- myTAI::plot_gene_profiles(bulk_phyloset, genes = valid_selected_genes, 
@@ -452,11 +450,10 @@ create_gene_profiles_plot <- function(bulk_phyloset, selected_genes = NULL, inte
                         p <- myTAI::plot_gene_profiles(bulk_phyloset, genes = valid_selected_genes)
                     }
                 } else {
-                    # Use default gene-based coloring
-                    p <- myTAI::plot_gene_profiles(bulk_phyloset, genes = valid_selected_genes)
+                    # Use strata coloring
+                    p <- myTAI::plot_gene_profiles(bulk_phyloset, genes = valid_selected_genes, colour_by="strata")
                 }
             } else {
-                cat("None of the selected genes are present in the phyloset. Using all genes.\n")
                 # Use all genes with default settings
                 p <- myTAI::plot_gene_profiles(bulk_phyloset)
             }
@@ -479,6 +476,7 @@ create_gene_profiles_plot <- function(bulk_phyloset, selected_genes = NULL, inte
 #' @return list with interacting genes, interaction types, and colors
 get_interacting_genes <- function(selected_gene, pathway_edges = NULL, pathway_nodes = NULL, gene_id_type = "symbol") {
     
+    # Input validation
     if (is.null(pathway_edges) || nrow(pathway_edges) == 0 || 
         is.null(pathway_nodes) || nrow(pathway_nodes) == 0) {
         return(list(
@@ -492,21 +490,30 @@ get_interacting_genes <- function(selected_gene, pathway_edges = NULL, pathway_n
     # Find the node corresponding to the selected gene
     selected_node_id <- NULL
     
-    # Try different matching strategies based on gene_id_type
     if (gene_id_type == "symbol") {
-        # Match by HGNC symbol
-        matches <- which(toupper(pathway_nodes$hgnc_symbol) == toupper(selected_gene) | 
-                        toupper(pathway_nodes$label) == toupper(selected_gene))
+        # Match by HGNC symbol, handling NAs properly
+        hgnc_matches <- which(!is.na(pathway_nodes$hgnc_symbol) & 
+                            pathway_nodes$hgnc_symbol == selected_gene)
+        if (length(hgnc_matches) > 0) {
+            selected_node_id <- pathway_nodes$id[hgnc_matches[1]]
+        } else {
+            # Fallback to label matching
+            label_matches <- which(!is.na(pathway_nodes$label) & 
+                                 pathway_nodes$label == selected_gene)
+            if (length(label_matches) > 0) {
+                selected_node_id <- pathway_nodes$id[label_matches[1]]
+            }
+        }
     } else if (gene_id_type == "entrez") {
         # Match by Entrez/KEGG ID
-        matches <- which(pathway_nodes$kegg_id == selected_gene)
-    } else {
-        # Generic matching
-        matches <- which(toupper(pathway_nodes$label) == toupper(selected_gene) |
-                        toupper(pathway_nodes$hgnc_symbol) == toupper(selected_gene))
+        kegg_matches <- which(!is.na(pathway_nodes$kegg_id) & 
+                            pathway_nodes$kegg_id == selected_gene)
+        if (length(kegg_matches) > 0) {
+            selected_node_id <- pathway_nodes$id[kegg_matches[1]]
+        }
     }
     
-    if (length(matches) == 0) {
+    if (is.null(selected_node_id)) {
         return(list(
             interacting_genes = character(0),
             interaction_types = character(0),
@@ -515,14 +522,13 @@ get_interacting_genes <- function(selected_gene, pathway_edges = NULL, pathway_n
         ))
     }
     
-    selected_node_id <- pathway_nodes$id[matches[1]]
+    # Find all edges involving this node (both incoming and outgoing)
+    edge_mask_incoming <- !is.na(pathway_edges$to) & pathway_edges$to == selected_node_id
+    edge_mask_outgoing <- !is.na(pathway_edges$from) & pathway_edges$from == selected_node_id
     
-    # Find all edges involving this node
-    incoming_edges <- pathway_edges[pathway_edges$to == selected_node_id, ]
-    outgoing_edges <- pathway_edges[pathway_edges$from == selected_node_id, ]
-    all_edges <- rbind(incoming_edges, outgoing_edges)
+    relevant_edges <- pathway_edges[edge_mask_incoming | edge_mask_outgoing, , drop = FALSE]
     
-    if (nrow(all_edges) == 0) {
+    if (nrow(relevant_edges) == 0) {
         return(list(
             interacting_genes = character(0),
             interaction_types = character(0),
@@ -531,70 +537,102 @@ get_interacting_genes <- function(selected_gene, pathway_edges = NULL, pathway_n
         ))
     }
     
-    # Get all interacting node IDs
+    # Get unique interacting node IDs
     interacting_node_ids <- unique(c(
-        all_edges$from[all_edges$to == selected_node_id],
-        all_edges$to[all_edges$from == selected_node_id]
+        relevant_edges$from[relevant_edges$to == selected_node_id & !is.na(relevant_edges$from)],
+        relevant_edges$to[relevant_edges$from == selected_node_id & !is.na(relevant_edges$to)]
     ))
     
-    # Remove the selected node itself
-    interacting_node_ids <- interacting_node_ids[interacting_node_ids != selected_node_id]
+    # Remove the selected node itself and any NAs
+    interacting_node_ids <- interacting_node_ids[!is.na(interacting_node_ids) & 
+                                                interacting_node_ids != selected_node_id]
     
-    # Get gene symbols for interacting nodes
-    interacting_nodes <- pathway_nodes[pathway_nodes$id %in% interacting_node_ids, ]
+    if (length(interacting_node_ids) == 0) {
+        return(list(
+            interacting_genes = character(0),
+            interaction_types = character(0),
+            interaction_colors = NULL,
+            message = paste("No valid interacting genes found for", selected_gene)
+        ))
+    }
     
-    # Prioritize HGNC symbols, fallback to labels
+    # Get interacting nodes
+    interacting_nodes <- pathway_nodes[pathway_nodes$id %in% interacting_node_ids, , drop = FALSE]
+    
+    if (nrow(interacting_nodes) == 0) {
+        return(list(
+            interacting_genes = character(0),
+            interaction_types = character(0),
+            interaction_colors = NULL,
+            message = paste("Interacting nodes not found in pathway data for", selected_gene)
+        ))
+    }
+    
+    # Extract gene names, prioritizing HGNC symbols over labels
     interacting_genes <- ifelse(
         !is.na(interacting_nodes$hgnc_symbol) & interacting_nodes$hgnc_symbol != "",
         interacting_nodes$hgnc_symbol,
         interacting_nodes$label
     )
     
-    # Get interaction types and create color mapping
-    interaction_types <- character(0)
-    interaction_colors <- character(0)
+    # Remove any remaining NAs or empty strings
+    valid_indices <- !is.na(interacting_genes) & interacting_genes != ""
+    interacting_genes <- interacting_genes[valid_indices]
+    interacting_nodes <- interacting_nodes[valid_indices, , drop = FALSE]
     
-    # Create color mapping based on edge relationships
-    edge_colors <- c(
-        "activation" = "#4CAF50",       # Green
-        "inhibition" = "#F44336",       # Red  
-        "binding" = "#2196F3",          # Blue
-        "expression" = "#FF9800",       # Orange
-        "catalysis" = "#9C27B0",        # Purple
-        "reaction" = "#607D8B",         # Blue-grey
-        "unknown" = "#9E9E9E"           # Grey
-    )
+    if (length(interacting_genes) == 0) {
+        return(list(
+            interacting_genes = character(0),
+            interaction_types = character(0),
+            interaction_colors = NULL,
+            message = paste("No valid gene names found for interacting nodes of", selected_gene)
+        ))
+    }
     
+    # Create interaction types and colors based on edge relationships
+    interaction_types <- character(length(interacting_genes))
+    interaction_colors <- character(length(interacting_genes))
+    
+    # Get centralized edge colors for consistency across the application
+    edge_colors <- get_kegg_edge_colors()
+    
+    # Assign colors and types based on edge relationships
     for (i in seq_along(interacting_genes)) {
         node_id <- interacting_nodes$id[i]
-        gene_name <- interacting_genes[i]
         
-        # Find edges involving this gene
-        gene_edges <- all_edges[all_edges$from == node_id | all_edges$to == node_id, ]
+        # Find edge connecting selected node to this interacting node
+        connecting_edge <- relevant_edges[
+            (relevant_edges$from == selected_node_id & relevant_edges$to == node_id) |
+            (relevant_edges$from == node_id & relevant_edges$to == selected_node_id), 
+            , drop = FALSE
+        ]
         
-        if (nrow(gene_edges) > 0) {
-            # Use the most common relationship type or first one
-            relationship <- gene_edges$relationship[1]
-            interaction_types <- c(interaction_types, relationship)
+        if (nrow(connecting_edge) > 0) {
+            # Use the first edge if multiple exist
+            edge_info <- connecting_edge[1, ]
             
-            # Assign color based on relationship
-            color <- edge_colors[relationship]
-            if (is.na(color)) {
-                color <- edge_colors["unknown"]
-            }
-            interaction_colors <- c(interaction_colors, color)
+            # Use centralized function to determine interaction relationship
+            relationship <- determine_interaction_relationship(
+                subtype = edge_info$subtype,
+                relation_type = edge_info$relation_type
+            )
+            
+            interaction_types[i] <- relationship
+            interaction_colors[i] <- ifelse(relationship %in% names(edge_colors), 
+                                          edge_colors[relationship], 
+                                          edge_colors["unknown"])
         } else {
-            interaction_types <- c(interaction_types, "unknown")
-            interaction_colors <- c(interaction_colors, edge_colors["unknown"])
+            interaction_types[i] <- "unknown"
+            interaction_colors[i] <- edge_colors["unknown"]
         }
     }
     
-    # Create named color vector for myTAI plotting
+    # Create named color vector for plotting
     names(interaction_colors) <- interacting_genes
     
-    # Include the selected gene itself with a special color
+    # Include the selected gene itself with a special color (black)
     all_genes <- c(selected_gene, interacting_genes)
-    all_colors <- c("#000000", interaction_colors)  # Black for selected gene
+    all_colors <- c("#000000", interaction_colors)
     names(all_colors) <- all_genes
     
     return(list(

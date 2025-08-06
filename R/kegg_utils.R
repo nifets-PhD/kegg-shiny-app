@@ -1,4 +1,49 @@
 # Helper functions for KEGG data processing
+
+#' Get centralized KEGG edge relationship color mapping
+#' This ensures consistent colors across the entire application
+#' @return named vector of colors for KEGG relationship types
+get_kegg_edge_colors <- function() {
+    c(
+        "activation" = "#00AA00",           # Green
+        "inhibition" = "#FF0000",           # Red
+        "expression" = "#0066CC",           # Blue
+        "repression" = "#CC0066",           # Pink
+        "phosphorylation" = "#1E90FF",      # Dodger blue
+        "dephosphorylation" = "#FF1493",    # Deep pink
+        "binding/association" = "#9932CC",   # Dark violet
+        "dissociation" = "#B22222",         # Fire brick
+        "PPrel" = "#2E8B57",               # Sea green
+        "PCrel" = "#FF6347",               # Tomato
+        "ECrel" = "#4169E1",               # Royal blue
+        "GErel" = "#8A2BE2",               # Blue violet
+        "unknown" = "#9E9E9E"              # Grey
+    )
+}
+
+#' Determine primary interaction relationship from edge data
+#' This ensures consistent relationship determination across network edges and gene profiles
+#' @param subtype character, subtype string (may be semicolon-separated)
+#' @param relation_type character, relation type string
+#' @return character, primary relationship type
+determine_interaction_relationship <- function(subtype = NULL, relation_type = NULL) {
+    # Handle subtype first (more specific)
+    if (!is.null(subtype) && !is.na(subtype) && subtype != "") {
+        # Handle semicolon-separated subtypes (e.g., "activation; phosphorylation")
+        subtype_parts <- trimws(strsplit(subtype, ";")[[1]])
+        # Return the first meaningful subtype
+        return(subtype_parts[1])
+    } 
+    
+    # Fallback to relation_type
+    if (!is.null(relation_type) && !is.na(relation_type) && relation_type != "") {
+        return(relation_type)
+    }
+    
+    # Default
+    return("unknown")
+}
+
 get_kegg_node_coordinates <- function(pathway_id) {
     tryCatch({
         # KEGG provides coordinate data in their KGML files
@@ -1086,94 +1131,61 @@ prepare_kegg_edges <- function(edges, show_edges = TRUE) {
                 )
             }
             
-                        # Further style based on subtype
+            # Further style based on subtype
             if (!is.null(edges$subtype) && !is.na(edges$subtype[i]) && edges$subtype[i] != "") {
-                subtype <- edges$subtype[i]
+                # Use centralized function to determine primary relationship
+                primary_relationship <- determine_interaction_relationship(
+                    subtype = edges$subtype[i],
+                    relation_type = edges$relation_type[i]
+                )
                 
-                # Handle multiple subtypes (separated by ;)
-                subtypes <- trimws(strsplit(subtype, ";")[[1]])
-                primary_subtype <- subtypes[1]
+                # Get centralized edge colors
+                edge_colors <- get_kegg_edge_colors()
                 
-                # Check if phosphorylation is present in any subtype for labeling
-                has_phosphorylation <- any(grepl("phosphorylation", subtypes))
-                has_dephosphorylation <- any(grepl("dephosphorylation", subtypes))
+                # Apply styling based on primary relationship
+                if (primary_relationship %in% names(edge_colors)) {
+                    edge_color <- edge_colors[primary_relationship]
+                }
                 
-                # Apply primary subtype styling
-                switch(primary_subtype,
+                # Apply specific styling rules for different relationships
+                switch(primary_relationship,
                     "activation" = {
-                        edge_color <- "#00AA00"  # Green for activation
                         arrow_style <- list(to = list(enabled = TRUE, scaleFactor = 0.5, type = "arrow"))
                         edge_width <- 3
                     },
                     "inhibition" = {
-                        edge_color <- "#FF0000"  # Red for inhibition
                         arrow_style <- list(to = list(enabled = TRUE, scaleFactor = 0.6, type = "bar"))  # T-shaped end for inhibition
                         edge_width <- 3
                     },
                     "expression" = {
-                        edge_color <- "#0066CC"  # Blue for expression
                         arrow_style <- list(to = list(enabled = TRUE, scaleFactor = 0.5, type = "arrow"))
                         edge_width <- 2
                     },
                     "repression" = {
-                        edge_color <- "#CC0066"  # Dark pink for repression
                         arrow_style <- list(to = list(enabled = TRUE, scaleFactor = 0.6, type = "bar"))  # T-shaped end for repression
                         edge_width <- 3
                     },
-                    "indirect effect" = {
-                        edge_color <- "#999999"  # Gray for indirect
-                        edge_width <- 1
-                        arrow_style <- list(to = list(enabled = TRUE, scaleFactor = 0.4, type = "arrow"))
-                    },
-                    "state change" = {
-                        edge_color <- "#FF8C00"  # Dark orange
-                        edge_width <- 2
-                        arrow_style <- list(to = list(enabled = TRUE, scaleFactor = 0.5, type = "circle"))
-                    },
-                    "binding/association" = {
-                        edge_color <- "#9932CC"  # Dark orchid
-                        arrow_style <- list(to = list(enabled = FALSE))  # No arrow for binding
-                        edge_width <- 2
-                    },
-                    "dissociation" = {
-                        edge_color <- "#B22222"  # Fire brick
-                        arrow_style <- list(to = list(enabled = FALSE))  # No arrow for dissociation
-                        edge_width <- 2
-                    },
                     "phosphorylation" = {
-                        edge_color <- "#1E90FF"  # Dodger blue
-                        edge_width <- 2
-                        edge_label <- "+p"  # Add phosphorylation label
                         arrow_style <- list(to = list(enabled = TRUE, scaleFactor = 0.5, type = "arrow"))
+                        edge_width <- 2
                     },
                     "dephosphorylation" = {
-                        edge_color <- "#FF1493"  # Deep pink
-                        edge_width <- 2
-                        edge_label <- "-p"  # Add dephosphorylation label
                         arrow_style <- list(to = list(enabled = TRUE, scaleFactor = 0.5, type = "arrow"))
-                    },
-                    "glycosylation" = {
-                        edge_color <- "#32CD32"  # Lime green
                         edge_width <- 2
-                        arrow_style <- list(to = list(enabled = TRUE, scaleFactor = 0.5, type = "arrow"))
-                    },
-                    "ubiquitination" = {
-                        edge_color <- "#DAA520"  # Goldenrod
-                        edge_width <- 2
-                        arrow_style <- list(to = list(enabled = TRUE, scaleFactor = 0.5, type = "arrow"))
-                    },
-                    "methylation" = {
-                        edge_color <- "#20B2AA"  # Light sea green
-                        edge_width <- 2
-                        arrow_style <- list(to = list(enabled = TRUE, scaleFactor = 0.5, type = "arrow"))
                     }
                 )
                 
-                # Add phosphorylation label if present (even as secondary subtype)
-                if (has_phosphorylation) {
-                    edge_label <- "+p"
-                } else if (has_dephosphorylation) {
-                    edge_label <- "-p"  
+                # Handle phosphorylation labeling (check if any subtype contains phosphorylation)
+                if (!is.null(edges$subtype[i])) {
+                    subtypes <- trimws(strsplit(edges$subtype[i], ";")[[1]])
+                    has_phosphorylation <- any(grepl("phosphorylation", subtypes))
+                    has_dephosphorylation <- any(grepl("dephosphorylation", subtypes))
+                    
+                    if (has_phosphorylation) {
+                        edge_label <- "+p"
+                    } else if (has_dephosphorylation) {
+                        edge_label <- "-p"
+                    }
                 }
             }
             
@@ -1211,20 +1223,21 @@ create_edge_legend <- function(edges) {
         stringsAsFactors = FALSE
     )
     
-    # Define relationship types and their styling
+    # Define relationship types and their styling using centralized colors
+    edge_colors <- get_kegg_edge_colors()
     relation_types <- list(
-        list(type = "activation", color = "#00AA00", desc = "Activation/stimulation (→)"),
-        list(type = "inhibition", color = "#FF0000", desc = "Inhibition/repression (T)"),
-        list(type = "expression", color = "#0066CC", desc = "Gene expression"),
-        list(type = "repression", color = "#CC0066", desc = "Expression repression (T)"),
-        list(type = "phosphorylation", color = "#1E90FF", desc = "Phosphorylation (+p)"),
-        list(type = "dephosphorylation", color = "#FF1493", desc = "Dephosphorylation (-p)"),
-        list(type = "binding/association", color = "#9932CC", desc = "Binding/association"),
-        list(type = "dissociation", color = "#B22222", desc = "Dissociation"),
-        list(type = "PPrel", color = "#2E8B57", desc = "Protein-protein relation"),
-        list(type = "PCrel", color = "#FF6347", desc = "Protein-compound relation"),
-        list(type = "ECrel", color = "#4169E1", desc = "Enzyme-compound relation"),
-        list(type = "GErel", color = "#8A2BE2", desc = "Gene expression relation")
+        list(type = "activation", color = edge_colors["activation"], desc = "Activation/stimulation (→)"),
+        list(type = "inhibition", color = edge_colors["inhibition"], desc = "Inhibition/repression (T)"),
+        list(type = "expression", color = edge_colors["expression"], desc = "Gene expression"),
+        list(type = "repression", color = edge_colors["repression"], desc = "Expression repression (T)"),
+        list(type = "phosphorylation", color = edge_colors["phosphorylation"], desc = "Phosphorylation (+p)"),
+        list(type = "dephosphorylation", color = edge_colors["dephosphorylation"], desc = "Dephosphorylation (-p)"),
+        list(type = "binding/association", color = edge_colors["binding/association"], desc = "Binding/association"),
+        list(type = "dissociation", color = edge_colors["dissociation"], desc = "Dissociation"),
+        list(type = "PPrel", color = edge_colors["PPrel"], desc = "Protein-protein relation"),
+        list(type = "PCrel", color = edge_colors["PCrel"], desc = "Protein-compound relation"),
+        list(type = "ECrel", color = edge_colors["ECrel"], desc = "Enzyme-compound relation"),
+        list(type = "GErel", color = edge_colors["GErel"], desc = "Gene expression relation")
     )
     
     # Check which types are present in the data
@@ -1359,15 +1372,10 @@ map_genes_to_phylostrata <- function(gene_ids, id_type = "symbol", phylomap = NU
 }
 
 # Phylostratum color generation function (from MyTAI dev version)
-# This function generates colors for phylostrata visualization
+# This function uses the pre-computed global color palette for consistency
 PS_colours <- function(n) {
-    vals <- 1:n |>
-        log() |>
-        scales::rescale()
-   
-    pal <- grDevices::colorRampPalette(c("black", "#AD6F3B", "lightgreen"))
-   
-    pal(100)[floor(vals * 99) + 1]
+    # Use the global color palette defined in global.R
+    return(GLOBAL_PHYLOSTRATA_COLORS[1:min(n, length(GLOBAL_PHYLOSTRATA_COLORS))])
 }
 
 #' Apply phylostratum coloring to nodes

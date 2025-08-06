@@ -67,4 +67,19 @@ source("R/network_utils.R")
 source("R/enrichment_utils.R")
 source("R/evolutionary_utils.R")
 
+# Pre-compute global phylostratum color palette for consistency
+# This ensures phylostratum 1 is always black regardless of how many strata are present
+GLOBAL_PHYLOSTRATA_COLORS <- {
+    max_strata <- 28  # Maximum number of phylostrata
+    vals <- 1:max_strata |>
+        log() |>
+        scales::rescale()
+   
+    pal <- grDevices::colorRampPalette(c("black", "#AD6F3B", "lightgreen"))
+    full_palette <- pal(100)[floor(vals * 99) + 1]
+    
+    # Create named vector for easy access
+    setNames(full_palette, 1:max_strata)
+}
+
 # Note: Gene mapping data is loaded on-demand to improve startup speed
