@@ -12,21 +12,136 @@ server <- function(input, output, session) {
     )
     
     # Gene upload functionality
+    # Reactive values for uploaded genes
     uploaded_genes <- reactiveVal(character(0))
+    converted_entrez_genes <- reactiveVal(character(0))  # Store Entrez IDs for KEGG operations
+    gene_id_type <- reactiveVal("entrez")  # Track the current gene ID type
     
-    # Load phylomap data for gene annotation
+    # Reactive values for gene validation
+    gene_validation_results <- reactiveVal(NULL)
+    
+    # Dynamic instruction panels based on gene ID type
+    output$gene_id_instructions <- renderUI({
+        id_type <- input$gene_id_type
+        
+        instructions <- switch(id_type,
+            "entrez" = list(
+                title = "📋 Entrez Gene IDs (Recommended)",
+                desc = "Use numeric Entrez Gene IDs for best KEGG pathway mapping. No conversion needed.",
+                examples = "Examples: 1956 (EGFR), 7157 (TP53), 672 (BRCA1), 4233 (MET)"
+            ),
+            "symbol" = list(
+                title = "📋 Gene Symbols (HGNC)",
+                desc = "Official HGNC gene symbols. Will be automatically converted to Entrez IDs for KEGG analysis.",
+                examples = "Examples: TP53, BRCA1, EGFR, MYC"
+            ),
+            "ensembl" = list(
+                title = "📋 Ensembl Gene IDs",
+                desc = "Ensembl gene identifiers. Will be automatically converted to Entrez IDs for KEGG analysis.",
+                examples = "Examples: ENSG00000141510, ENSG00000012048, ENSG00000146648"
+            ),
+            "uniprot" = list(
+                title = "📋 UniProt IDs",
+                desc = "UniProt protein identifiers. Will be automatically converted to Entrez IDs for KEGG analysis.",
+                examples = "Examples: P04637, P38398, P00533, P01106"
+            )
+        )
+        
+        div(style = "padding: 10px; background-color: #d1ecf1; border: 1px solid #bee5eb; border-radius: 5px; margin-bottom: 15px;",
+            h5(style = "color: #0c5460; margin-top: 0;", instructions$title),
+            p(style = "color: #0c5460; margin-bottom: 5px;", instructions$desc),
+            p(style = "color: #0c5460; margin-bottom: 0; font-size: 12px;", instructions$examples)
+        )
+    })
+    
+    output$file_upload_instructions <- renderUI({
+        id_type <- input$gene_id_type
+        
+        instructions <- switch(id_type,
+            "entrez" = list(
+                title = "📋 Entrez Gene IDs (Recommended)",
+                desc = "Upload files containing numeric Entrez Gene IDs for best KEGG pathway mapping.",
+                examples = "Examples: 1956, 7157, 672, 4233"
+            ),
+            "symbol" = list(
+                title = "📋 Gene Symbols (HGNC)",
+                desc = "Upload files containing official HGNC gene symbols.",
+                examples = "Examples: TP53, BRCA1, EGFR, MYC"
+            ),
+            "ensembl" = list(
+                title = "📋 Ensembl Gene IDs",
+                desc = "Upload files containing Ensembl gene identifiers.",
+                examples = "Examples: ENSG00000141510, ENSG00000012048"
+            ),
+            "uniprot" = list(
+                title = "📋 UniProt IDs",
+                desc = "Upload files containing UniProt protein identifiers.",
+                examples = "Examples: P04637, P38398, P00533"
+            )
+        )
+        
+        div(style = "padding: 10px; background-color: #d1ecf1; border: 1px solid #bee5eb; border-radius: 5px; margin-bottom: 15px;",
+            h5(style = "color: #0c5460; margin-top: 0;", instructions$title),
+            p(style = "color: #0c5460; margin-bottom: 5px;", instructions$desc),
+            p(style = "color: #0c5460; margin-bottom: 0; font-size: 12px;", instructions$examples)
+        )
+    })
+    
+    # Dynamic text area with examples that change based on gene ID type
+    output$gene_text_input <- renderUI({
+        id_type <- input$gene_id_type
+        
+        # Define examples for each ID type
+        examples <- switch(id_type,
+            "entrez" = list(
+                value = "1956\n672\n1950\n4233\n2597\n2475\n207\n5290\n5728\n7249\n3630\n3479\n3667\n2308\n2932\n7422\n3091\n5594\n5894",
+                placeholder = "Enter Entrez Gene IDs separated by newlines!\n1956\n672\n1950\n4233\n2597"
+            ),
+            "symbol" = list(
+                value = "TP53\nBRCA1\nEGFR\nMYC\nGAPDH\nMTOR\nAKT1\nPIK3CA\nPTEN\nTSC1\nINS\nIGF1\nIRS1\nFOXO1\nGSK3B\nVEGFA\nHIF1A\nMAPK1\nRAF1\nRAS",
+                placeholder = "Enter gene symbols separated by newlines!\nTP53\nBRCA1\nEGFR\nMYC\nGAPDH"
+            ),
+            "ensembl" = list(
+                value = "ENSG00000141510\nENSG00000012048\nENSG00000146648\nENSG00000136997\nENSG00000111640\nENSG00000198793\nENSG00000142208\nENSG00000171862\nENSG00000171791\nENSG00000165699\nENSG00000254647\nENSG00000140443\nENSG00000169032\nENSG00000149311\nENSG00000168036\nENSG00000112715\nENSG00000100644\nENSG00000100030\nENSG00000132155\nENSG00000174775",
+                placeholder = "Enter Ensembl Gene IDs separated by newlines!\nENSG00000141510\nENSG00000012048\nENSG00000146648"
+            ),
+            "uniprot" = list(
+                value = "P04637\nP38398\nP00533\nP01106\nP04406\nP42345\nP31749\nP42336\nP60484\nQ92574\nP01308\nP05019\nP35568\nO14757\nP49841\nP15692\nQ16665\nP28482\nP04049\nP01112",
+                placeholder = "Enter UniProt IDs separated by newlines!\nP04637\nP38398\nP00533\nP01106"
+            )
+        )
+        
+        textAreaInput("gene_text", "Enter Gene IDs (ONE PER LINE):",
+                     value = examples$value,
+                     placeholder = examples$placeholder,
+                     height = "200px")
+    })
+    
+    # Load comprehensive phylomap data for gene annotation
     phylomap_data <- NULL
     tryCatch({
-        phylomap_file <- "data/phylomap_hgnc.tsv"
+        phylomap_file <- "data/phylomap.tsv"  # Use comprehensive phylomap
         if (file.exists(phylomap_file)) {
             phylomap_data <- read.delim(phylomap_file, stringsAsFactors = FALSE)
-            cat("Loaded phylomap data with", nrow(phylomap_data), "genes\n")
+            cat("Loaded comprehensive phylomap data with", nrow(phylomap_data), "protein entries\n")
         } else {
-            cat("Phylomap file not found:", phylomap_file, "\n")
+            cat("Comprehensive phylomap file not found:", phylomap_file, "\n")
         }
     }, error = function(e) {
-        cat("Error loading phylomap data:", e$message, "\n")
+        cat("Error loading comprehensive phylomap data:", e$message, "\n")
         phylomap_data <- NULL
+    })
+    
+    # Load comprehensive gene ID mapping
+    comprehensive_mapping <- NULL
+    tryCatch({
+        comprehensive_mapping <- download_hgnc_uniprot_mapping()
+        if (nrow(comprehensive_mapping) > 0) {
+            cat("Loaded comprehensive gene mapping with", nrow(comprehensive_mapping), "entries\n")
+        }
+    }, error = function(e) {
+        cat("Error loading comprehensive gene mapping:", e$message, "\n")
+        comprehensive_mapping <- NULL
     })
     
     # Load KEGG pathways and sequence data on app start
@@ -38,18 +153,29 @@ server <- function(input, output, session) {
     
     # Handle file upload
     observeEvent(input$gene_file, {
-        req(input$gene_file)
+        req(input$gene_file, input$gene_id_type)
         
         tryCatch({
             genes <- load_gene_file(input$gene_file$datapath)
             uploaded_genes(genes)
+            gene_id_type(input$gene_id_type)
             
-            # Automatically validate genes
-            validation <- validate_gene_symbols(genes)
+            # Automatically validate genes with the selected ID type
+            validation <- validate_gene_ids(genes, input$gene_id_type)
             gene_validation_results(validation)
             
+            # Store converted Entrez IDs for KEGG pathway operations
+            if (!is.null(validation$entrez_mapping) && nrow(validation$entrez_mapping) > 0) {
+                entrez_ids <- validation$entrez_mapping$ENTREZID[!is.na(validation$entrez_mapping$ENTREZID)]
+                converted_entrez_genes(entrez_ids)
+                cat("Stored", length(entrez_ids), "Entrez IDs from uploaded file for KEGG pathway operations\n")
+            } else {
+                converted_entrez_genes(character(0))
+                cat("No valid Entrez IDs found from uploaded file\n")
+            }
+            
             showNotification(
-                paste("Loaded", length(genes), "genes from file"),
+                paste("Loaded", length(genes), input$gene_id_type, "IDs from file"),
                 type = "message"
             )
         }, error = function(e) {
@@ -70,28 +196,41 @@ server <- function(input, output, session) {
     
     # Handle Load Genes button
     observeEvent(input$load_genes_text, {
+        req(input$gene_id_type)
+        
         if (!is.null(input$gene_text) && input$gene_text != "") {
             tryCatch({
                 genes <- parse_gene_text(input$gene_text)
                 uploaded_genes(genes)
+                gene_id_type(input$gene_id_type)
                 
-                # Automatically validate genes
-                validation <- validate_gene_symbols(genes)
+                # Automatically validate genes with the selected ID type
+                validation <- validate_gene_ids(genes, input$gene_id_type)
                 gene_validation_results(validation)
                 
+                # Store converted Entrez IDs for KEGG pathway operations
+                if (!is.null(validation$entrez_mapping) && nrow(validation$entrez_mapping) > 0) {
+                    entrez_ids <- validation$entrez_mapping$ENTREZID[!is.na(validation$entrez_mapping$ENTREZID)]
+                    converted_entrez_genes(entrez_ids)
+                    cat("Stored", length(entrez_ids), "Entrez IDs for KEGG pathway operations\n")
+                } else {
+                    converted_entrez_genes(character(0))
+                    cat("No valid Entrez IDs found for KEGG pathway operations\n")
+                }
+                
                 showNotification(
-                    paste("Loaded", length(genes), "genes from text"),
+                    paste("Loaded", length(genes), input$gene_id_type, "IDs from text"),
                     type = "message"
                 )
             }, error = function(e) {
                 showNotification(
-                    paste("Error parsing genes:", e$message),
+                    paste("Error parsing gene IDs:", e$message),
                     type = "error"
                 )
             })
         } else {
             showNotification(
-                "Please enter some gene symbols first",
+                "Please enter some gene IDs first",
                 type = "warning",
                 duration = 3
             )
@@ -116,23 +255,43 @@ server <- function(input, output, session) {
         
         if (length(genes) == 0) {
             return(datatable(
-                data.frame(Message = "No genes uploaded yet"),
+                data.frame(Message = "No gene IDs uploaded yet"),
                 options = list(pageLength = 5, searching = FALSE, info = FALSE, paging = FALSE),
                 rownames = FALSE
             ))
         }
         
         # Create a summary table of uploaded genes
+        id_type <- gene_id_type()
+        id_type_label <- switch(id_type,
+                               "entrez" = "Entrez_ID",
+                               "symbol" = "Gene_Symbol",
+                               "ensembl" = "Ensembl_ID",
+                               "uniprot" = "UniProt_ID",
+                               "Gene_ID")
+        
         gene_df <- data.frame(
-            Gene_Symbol = genes,
+            ID = genes,
+            Type = id_type_label,
             Status = "Uploaded",
             stringsAsFactors = FALSE
         )
+        names(gene_df)[1] <- id_type_label
         
-        # Check if genes are in phylomap (optional)
+        # Enhanced phylomap matching using the fixed map_genes_to_phylostrata function
         if (!is.null(phylomap_data)) {
-            phylomap_genes <- toupper(phylomap_data$GeneID)
-            gene_df$In_Phylomap <- ifelse(toupper(gene_df$Gene_Symbol) %in% phylomap_genes, "Yes", "No")
+            # Use the enhanced map_genes_to_phylostrata function that handles duplicates properly
+            phylostrata_result <- map_genes_to_phylostrata(genes, id_type)
+            
+            # Check if genes were successfully mapped (have non-NA phylostrata)
+            gene_df$In_Phylomap <- ifelse(
+                !is.na(phylostrata_result), 
+                "Yes", 
+                "No"
+            )
+        } else {
+            # If phylomap data is not available
+            gene_df$In_Phylomap <- "Unknown"
         }
         
         datatable(
@@ -156,14 +315,29 @@ server <- function(input, output, session) {
     # Gene statistics
     output$gene_stats <- renderText({
         genes <- uploaded_genes()
+        entrez_ids <- converted_entrez_genes()
+        
         if (length(genes) == 0) {
             return("No genes uploaded")
         }
         
+        id_type_label <- switch(gene_id_type(),
+                               "entrez" = "Entrez IDs",
+                               "symbol" = "Gene Symbols",
+                               "ensembl" = "Ensembl IDs", 
+                               "uniprot" = "UniProt IDs",
+                               "Unknown")
+        
         stats <- paste0(
-            "Total genes: ", length(genes),
+            "Total genes: ", length(genes), " (", id_type_label, ")",
             " | Unique genes: ", length(unique(genes))
         )
+        
+        # Add Entrez conversion info if not already Entrez IDs
+        if (gene_id_type() != "entrez" && length(entrez_ids) > 0) {
+            conversion_rate <- round(length(entrez_ids) / length(genes) * 100, 1)
+            stats <- paste0(stats, " | KEGG-ready: ", length(entrez_ids), " (", conversion_rate, "%)")
+        }
         
         # Add phylomap overlap if available
         if (!is.null(phylomap_data)) {
@@ -215,10 +389,12 @@ server <- function(input, output, session) {
     
     # Show which uploaded genes are present in the current pathway
     output$genes_in_pathway <- renderText({
-        genes <- uploaded_genes()
+        # Use both original genes and Entrez IDs for matching
+        original_genes <- uploaded_genes()
+        entrez_ids <- converted_entrez_genes()
         nodes <- values$nodes
         
-        if (length(genes) == 0) {
+        if (length(original_genes) == 0) {
             return("No genes selected")
         }
         
@@ -226,57 +402,104 @@ server <- function(input, output, session) {
             return("No pathway loaded")
         }
         
-        # Find which uploaded genes are present in the pathway
-        # Check against both HGNC symbols and labels
-        genes_upper <- toupper(genes)
         found_genes <- character(0)
+        found_by_entrez <- character(0)
+        
+        # First, try to match using Entrez IDs (most reliable for KEGG pathways)
+        if (length(entrez_ids) > 0 && !is.null(nodes$kegg_id)) {
+            # Match Entrez IDs against KEGG IDs in pathway nodes
+            for (i in seq_len(nrow(nodes))) {
+                node_kegg_ids <- character(0)
+                
+                # Extract all Entrez IDs from this node
+                if (!is.na(nodes$kegg_id[i]) && nodes$kegg_id[i] != "") {
+                    node_kegg_ids <- c(node_kegg_ids, nodes$kegg_id[i])
+                }
+                
+                # Also check gene_name field for Entrez IDs
+                if (!is.null(nodes$gene_name) && !is.na(nodes$gene_name[i])) {
+                    # Extract numeric IDs from entry names like "hsa:2475 hsa:57521"
+                    numeric_ids <- regmatches(nodes$gene_name[i], gregexpr("\\d+", nodes$gene_name[i]))[[1]]
+                    node_kegg_ids <- c(node_kegg_ids, numeric_ids)
+                }
+                
+                # Check if any of our Entrez IDs match this node
+                matches <- intersect(entrez_ids, node_kegg_ids)
+                if (length(matches) > 0) {
+                    # Map back to original gene symbols for display
+                    validation <- gene_validation_results()
+                    if (!is.null(validation$entrez_mapping)) {
+                        for (entrez_match in matches) {
+                            original_gene <- validation$entrez_mapping[
+                                !is.na(validation$entrez_mapping$ENTREZID) & 
+                                validation$entrez_mapping$ENTREZID == entrez_match, 
+                                names(validation$entrez_mapping)[1]  # Get original ID column
+                            ]
+                            if (length(original_gene) > 0 && !is.na(original_gene[1])) {
+                                found_by_entrez <- c(found_by_entrez, original_gene[1])
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        # Additionally, try traditional matching for any that weren't found by Entrez ID
+        # This provides backward compatibility and catches edge cases
+        genes_upper <- toupper(original_genes)
+        traditional_found <- character(0)
         
         # Check HGNC symbols
         if (!is.null(nodes$hgnc_symbol)) {
-            hgnc_matches <- genes_upper[genes_upper %in% toupper(nodes$hgnc_symbol)]
-            found_genes <- c(found_genes, hgnc_matches)
+            hgnc_matches <- original_genes[genes_upper %in% toupper(nodes$hgnc_symbol)]
+            traditional_found <- c(traditional_found, hgnc_matches)
         }
         
         # Check labels (node labels)  
         if (!is.null(nodes$label)) {
-            label_matches <- genes_upper[genes_upper %in% toupper(nodes$label)]
-            found_genes <- c(found_genes, label_matches)
+            label_matches <- original_genes[genes_upper %in% toupper(nodes$label)]
+            traditional_found <- c(traditional_found, label_matches)
         }
         
-        # Check gene names (original KEGG names)
-        if (!is.null(nodes$gene_name)) {
-            # Extract individual gene symbols from KEGG gene names like "hsa:2475 hsa:57521"
-            all_kegg_genes <- unlist(strsplit(nodes$gene_name, "\\s+"))
-            all_kegg_genes <- gsub("hsa:", "", all_kegg_genes)
-            # Try to match against these KEGG IDs as well
-            kegg_id_matches <- genes_upper[genes_upper %in% toupper(all_kegg_genes)]
-            found_genes <- c(found_genes, kegg_id_matches)
-        }
+        # Combine all found genes and remove duplicates
+        all_found <- unique(c(found_by_entrez, traditional_found))
         
-        # Remove duplicates and get original case
-        found_genes <- unique(found_genes)
-        
-        if (length(found_genes) == 0) {
-            return(paste0("None of your ", length(genes), " genes were found in this pathway.\n\n",
-                         "Your genes: ", paste(genes, collapse = ", "), "\n\n",
-                         "Try loading a different pathway that might contain your genes."))
+        if (length(all_found) == 0) {
+            id_type_label <- switch(gene_id_type(),
+                                   "entrez" = "Entrez IDs",
+                                   "symbol" = "Gene Symbols", 
+                                   "ensembl" = "Ensembl IDs",
+                                   "uniprot" = "UniProt IDs",
+                                   "Gene IDs")
+            
+            return(paste0("None of your ", length(original_genes), " genes were found in this pathway.\n\n",
+                         "Your genes (", id_type_label, "): ", paste(head(original_genes, 10), collapse = ", "), 
+                         if (length(original_genes) > 10) "..." else "", "\n\n",
+                         "💡 Tip: Gene matching works best when you upload Entrez Gene IDs.\n",
+                         "Check the Gene Set tab to see conversion rates for your IDs."))
         }
         
         # Format the found genes
         genes_per_row <- 4
-        gene_rows <- split(found_genes, ceiling(seq_along(found_genes) / genes_per_row))
+        gene_rows <- split(all_found, ceiling(seq_along(all_found) / genes_per_row))
         formatted_rows <- sapply(gene_rows, function(row) paste(row, collapse = "  |  "))
         
-        missing_genes <- genes_upper[!genes_upper %in% found_genes]
+        missing_genes <- setdiff(original_genes, all_found)
         
         result <- paste(c(
-            paste("🎯 FOUND:", length(found_genes), "out of", length(genes), "genes in this pathway:"),
+            paste("🎯 FOUND:", length(all_found), "out of", length(original_genes), "genes in this pathway:"),
             "",
             formatted_rows
         ), collapse = "\n")
         
-        if (length(missing_genes) > 0) {
+        if (length(missing_genes) > 0 && length(missing_genes) <= 10) {
             result <- paste0(result, "\n\n❌ Not found: ", paste(missing_genes, collapse = ", "))
+        } else if (length(missing_genes) > 10) {
+            result <- paste0(result, "\n\n❌ Not found: ", paste(missing_genes[1:10], collapse = ", "), "... (and ", length(missing_genes) - 10, " more)")
+        }
+        
+        if (length(found_by_entrez) > 0) {
+            result <- paste0(result, "\n\n✨ ", length(found_by_entrez), " genes matched using Entrez ID conversion")
         }
         
         return(result)
@@ -412,10 +635,21 @@ server <- function(input, output, session) {
         
         # Use user's selected coloring mode
         coloring_mode <- input$node_coloring
-        highlight_genes <- uploaded_genes()
         
-        # Only pass highlight_genes if the user selected the highlight_genes mode
-        highlight_genes_to_use <- if(coloring_mode == "highlight_genes") highlight_genes else NULL
+        # Use Entrez IDs for gene highlighting instead of original IDs
+        # This ensures genes are found in KEGG pathways regardless of input ID type
+        highlight_genes_to_use <- NULL
+        if (coloring_mode == "highlight_genes") {
+            entrez_ids <- converted_entrez_genes()
+            if (length(entrez_ids) > 0) {
+                highlight_genes_to_use <- entrez_ids
+                cat("Using", length(entrez_ids), "Entrez IDs for gene highlighting in pathway\n")
+            } else {
+                # Fallback to original genes if no Entrez conversion available
+                highlight_genes_to_use <- uploaded_genes()
+                cat("No Entrez IDs available, using original", length(highlight_genes_to_use), "IDs for highlighting\n")
+            }
+        }
         
         create_kegg_network_visualization(
             values$nodes, 
@@ -423,7 +657,8 @@ server <- function(input, output, session) {
             show_labels = TRUE,
             show_edges = TRUE,
             coloring_mode = coloring_mode,
-            highlight_genes = highlight_genes_to_use
+            highlight_genes = highlight_genes_to_use,
+            id_type = gene_id_type()  # Pass the current gene ID type
         )
     })
     
@@ -476,19 +711,77 @@ server <- function(input, output, session) {
                     incoming_edges <- values$edges[values$edges$to == node_id, ]
                     outgoing_edges <- values$edges[values$edges$from == node_id, ]
                     
-                    # Get UniProt information
+                    # Get comprehensive gene ID information
                     hgnc_symbol <- selected_node$hgnc_symbol
-                    uniprot_id <- NULL
+                    kegg_id <- selected_node$kegg_id
+                    gene_name <- selected_node$gene_name
+                    display_label <- selected_node$label
+                    node_type <- selected_node$type
+                    
+                    # Initialize comprehensive gene ID info
+                    gene_id_info <- ""
                     uniprot_info <- NULL
                     uniprot_link <- ""
                     
-                    if (!is.null(hgnc_symbol) && !is.na(hgnc_symbol) && hgnc_symbol != "") {
-                        uniprot_id <- get_uniprot_id(hgnc_symbol, uniprot_mapping)
-                        if (!is.null(uniprot_id) && !is.null(uniprot_mapping)) {
-                            # Get full UniProt information from mapping
-                            uniprot_row <- uniprot_mapping[uniprot_mapping$hgnc_symbol == hgnc_symbol, ]
-                            if (nrow(uniprot_row) > 0) {
-                                uniprot_info <- uniprot_row[1, ]
+                    # Get comprehensive mapping data for this gene
+                    if (!is.null(hgnc_symbol) && length(hgnc_symbol) > 0 && !is.na(hgnc_symbol) && hgnc_symbol != "") {
+                        tryCatch({
+                            # Try to get comprehensive mapping from the loaded data
+                            if (!is.null(comprehensive_mapping)) {
+                                # Look up by HGNC symbol
+                                gene_info <- comprehensive_mapping[
+                                    !is.na(comprehensive_mapping$hgnc_symbol) & 
+                                    comprehensive_mapping$hgnc_symbol == hgnc_symbol, 
+                                ]
+                                
+                                if (nrow(gene_info) > 0) {
+                                    gene_record <- gene_info[1, ]  # Take first match if multiple
+                                    
+                                    # Build comprehensive ID information
+                                    gene_id_info <- paste0(
+                                        "<strong>=== GENE IDENTIFIERS ===</strong><br>",
+                                        if (!is.null(gene_record$hgnc_symbol) && !is.na(gene_record$hgnc_symbol) && gene_record$hgnc_symbol != "") 
+                                            paste0("<strong>Gene Symbol (HGNC):</strong> <code>", gene_record$hgnc_symbol, "</code><br>") else "",
+                                        if (!is.null(gene_record$entrezgene_id) && !is.na(gene_record$entrezgene_id) && gene_record$entrezgene_id != "") 
+                                            paste0("<strong>Entrez Gene ID:</strong> <code>", gene_record$entrezgene_id, "</code><br>") else "",
+                                        if (!is.null(gene_record$ensembl_gene_id) && !is.na(gene_record$ensembl_gene_id) && gene_record$ensembl_gene_id != "") 
+                                            paste0("<strong>Ensembl Gene ID:</strong> <code>", gene_record$ensembl_gene_id, "</code><br>") else "",
+                                        if (!is.null(gene_record$uniprotswissprot) && !is.na(gene_record$uniprotswissprot) && gene_record$uniprotswissprot != "") 
+                                            paste0("<strong>UniProt ID:</strong> <code>", gene_record$uniprotswissprot, "</code><br>") else "",
+                                        "<strong>KEGG Gene ID:</strong> <code>", kegg_id, "</code><br>",
+                                        "<strong>Original KEGG Entry:</strong> <code>", gene_name, "</code><br>",
+                                        "<strong>Node Type:</strong> ", node_type, "<br>",
+                                        "<strong>Display Label:</strong> ", display_label, "<br>"
+                                    )
+                                    
+                                    # Set uniprot_info for additional processing
+                                    if (!is.null(gene_record$uniprotswissprot) && !is.na(gene_record$uniprotswissprot) && gene_record$uniprotswissprot != "") {
+                                        uniprot_info <- gene_record
+                                        # Create structure link if possible
+                                        uniprot_link <- create_uniprot_structure_link(gene_record$uniprotswissprot)
+                                    }
+                                }
+                            }
+                        }, error = function(e) {
+                            cat("Error getting comprehensive mapping:", e$message, "\n")
+                        })
+                    }
+                    
+                    # Fallback to basic information if comprehensive mapping failed
+                    if (gene_id_info == "") {
+                        gene_id_info <- paste0(
+                            "<strong>=== GENE INFORMATION ===</strong><br>",
+                            "<strong>Gene Symbol:</strong> <code>", if(!is.null(hgnc_symbol) && !is.na(hgnc_symbol)) hgnc_symbol else "Not available", "</code><br>",
+                            "<strong>KEGG Gene ID:</strong> <code>", kegg_id, "</code><br>",
+                            "<strong>Original KEGG Entry:</strong> <code>", gene_name, "</code><br>",
+                            "<strong>Node Type:</strong> ", node_type, "<br>",
+                            "<strong>Display Label:</strong> ", display_label, "<br>"
+                        )
+                        
+                        # Try simpler UniProt lookup as fallback
+                        if (!is.null(hgnc_symbol) && !is.na(hgnc_symbol) && hgnc_symbol != "") {
+                            uniprot_id <- get_uniprot_id(hgnc_symbol, comprehensive_mapping)
+                            if (!is.null(uniprot_id)) {
                                 uniprot_link <- create_uniprot_structure_link(uniprot_id)
                             }
                         }
@@ -518,6 +811,45 @@ server <- function(input, output, session) {
                         }
                     }
                     
+                    # Build enhanced UniProt information section
+                    uniprot_section <- ""
+                    if (!is.null(uniprot_info)) {
+                        # Build UniProt section content (excluding ID which is already shown above)
+                        uniprot_content_parts <- c()
+                        
+                        # Add protein name if available
+                        if (!is.null(uniprot_info$name) && !is.na(uniprot_info$name) && uniprot_info$name != "") {
+                            uniprot_content_parts <- c(uniprot_content_parts, 
+                                paste0("<strong>Protein Name:</strong> ", uniprot_info$name, "<br>"))
+                        }
+                        
+                        # Add aliases if available
+                        if (!is.null(uniprot_info$alias_symbol) && !is.na(uniprot_info$alias_symbol) && uniprot_info$alias_symbol != "") {
+                            uniprot_content_parts <- c(uniprot_content_parts, 
+                                paste0("<strong>Aliases:</strong> ", uniprot_info$alias_symbol, "<br>"))
+                        }
+                        
+                        # Add structure link if available
+                        if (uniprot_link != "") {
+                            uniprot_content_parts <- c(uniprot_content_parts, 
+                                paste0("<strong>3D Structure:</strong> ", uniprot_link, "<br>"))
+                        }
+                        
+                        # Only create the UniProt section if we have additional information beyond the ID
+                        if (length(uniprot_content_parts) > 0) {
+                            uniprot_section <- paste0(
+                                "<br><strong>=== PROTEIN INFORMATION ===</strong><br>",
+                                paste(uniprot_content_parts, collapse = "")
+                            )
+                        }
+                    } else if (uniprot_link != "") {
+                        # If we only have a structure link, show minimal section
+                        uniprot_section <- paste0(
+                            "<br><strong>=== PROTEIN INFORMATION ===</strong><br>",
+                            "<strong>3D Structure:</strong> ", uniprot_link, "<br>"
+                        )
+                    }
+                    
                     # Build relationship info
                     relationship_info <- ""
                     if (nrow(incoming_edges) > 0 || nrow(outgoing_edges) > 0) {
@@ -535,9 +867,16 @@ server <- function(input, output, session) {
                                 rel_type <- if (!is.null(edge$relation_type) && !is.na(edge$relation_type)) edge$relation_type else "Unknown"
                                 subtype <- if (!is.null(edge$subtype) && !is.na(edge$subtype) && edge$subtype != "") edge$subtype else ""
                                 
-                                # Find the source node name
+                                # Find the source node name - prefer symbol over ID
                                 source_node <- values$nodes[values$nodes$id == edge$from, ]
-                                source_name <- if (nrow(source_node) > 0) source_node$hgnc_symbol else edge$from
+                                source_name <- edge$from  # default fallback
+                                if (nrow(source_node) > 0) {
+                                    if (!is.null(source_node$hgnc_symbol) && !is.na(source_node$hgnc_symbol) && source_node$hgnc_symbol != "") {
+                                        source_name <- source_node$hgnc_symbol
+                                    } else if (!is.null(source_node$label) && !is.na(source_node$label) && source_node$label != "") {
+                                        source_name <- source_node$label
+                                    }
+                                }
                                 
                                 relationship_info <- paste0(relationship_info, 
                                     "← ", source_name, " (", rel_type, 
@@ -552,9 +891,16 @@ server <- function(input, output, session) {
                                 rel_type <- if (!is.null(edge$relation_type) && !is.na(edge$relation_type)) edge$relation_type else "Unknown"
                                 subtype <- if (!is.null(edge$subtype) && !is.na(edge$subtype) && edge$subtype != "") edge$subtype else ""
                                 
-                                # Find the target node name
+                                # Find the target node name - prefer symbol over ID
                                 target_node <- values$nodes[values$nodes$id == edge$to, ]
-                                target_name <- if (nrow(target_node) > 0) target_node$hgnc_symbol else edge$to
+                                target_name <- edge$to  # default fallback
+                                if (nrow(target_node) > 0) {
+                                    if (!is.null(target_node$hgnc_symbol) && !is.na(target_node$hgnc_symbol) && target_node$hgnc_symbol != "") {
+                                        target_name <- target_node$hgnc_symbol
+                                    } else if (!is.null(target_node$label) && !is.na(target_node$label) && target_node$label != "") {
+                                        target_name <- target_node$label
+                                    }
+                                }
                                 
                                 relationship_info <- paste0(relationship_info, 
                                     "→ ", target_name, " (", rel_type, 
@@ -563,45 +909,20 @@ server <- function(input, output, session) {
                         }
                     }
                     
-                    # Create HTML content
+                    # Create comprehensive HTML content
                     html_content <- paste0(
-                        "<strong>=== GENE INFORMATION ===</strong><br>",
-                        "<strong>KEGG Gene ID:</strong> <code>", selected_node$kegg_id, "</code><br>",
-                        "<strong>HGNC Symbol:</strong> <code>", selected_node$hgnc_symbol, "</code><br>",
-                        "<strong>Original KEGG ID:</strong> <code>", selected_node$gene_name, "</code><br>",
-                        "<strong>Node Type:</strong> ", selected_node$type, "<br>",
-                        "<strong>Display Label:</strong> ", selected_node$label, "<br>",
-                        phylo_info,
-                        if (!is.null(uniprot_info)) {
-                            paste0(
-                                "<br><strong>=== UNIPROT INFORMATION ===</strong><br>",
-                                "<strong>UniProt ID:</strong> <code>", uniprot_info$uniprot_id, "</code><br>",
-                                if (!is.na(uniprot_info$uniprot_swissprot) && uniprot_info$uniprot_swissprot != "") 
-                                    paste0("<strong>SwissProt ID:</strong> <code>", uniprot_info$uniprot_swissprot, "</code><br>") else "",
-                                if (!is.na(uniprot_info$uniprot_trembl) && uniprot_info$uniprot_trembl != "") 
-                                    paste0("<strong>TrEMBL ID:</strong> <code>", uniprot_info$uniprot_trembl, "</code><br>") else "",
-                                if (!is.na(uniprot_info$ensembl_gene_id) && uniprot_info$ensembl_gene_id != "") 
-                                    paste0("<strong>Ensembl ID:</strong> <code>", uniprot_info$ensembl_gene_id, "</code><br>") else "",
-                                if (!is.na(uniprot_info$description) && uniprot_info$description != "") {
-                                    # Clean up the description by removing the [Source:...] part
-                                    clean_desc <- gsub("\\s*\\[Source:.*\\]\\s*$", "", uniprot_info$description)
-                                    paste0("<strong>Description:</strong> ", clean_desc, "<br>")
-                                } else "",
-                                if (uniprot_link != "") paste0("<strong>Structure:</strong> ", uniprot_link, "<br>") else ""
-                            )
-                        } else if (!is.null(uniprot_id)) {
-                            paste0(
-                                "<br><strong>=== UNIPROT INFORMATION ===</strong><br>",
-                                "<strong>UniProt ID:</strong> <code>", uniprot_id, "</code><br>",
-                                if (uniprot_link != "") paste0("<strong>Structure:</strong> ", uniprot_link, "<br>") else ""
-                            )
-                        } else "",
-                        relationship_info, "<br>",
-                        "<strong>=== PATHWAY CONTEXT ===</strong><br>",
-                        "In KEGG, this gene is referenced as: <code>", selected_node$kegg_id, "</code><br>",
-                        "Common name/symbol: <code>", selected_node$hgnc_symbol, "</code><br><br>",
-                        "<em>Tip: Search for '", selected_node$kegg_id, "' in KEGG database<br>",
-                        "or '", selected_node$hgnc_symbol, "' in gene databases</em>"
+                        gene_id_info,
+                        if (phylo_info != "") paste0("<br>", phylo_info) else "",
+                        uniprot_section,
+                        relationship_info, 
+                        "<br><strong>=== PATHWAY CONTEXT ===</strong><br>",
+                        "In KEGG, this gene is referenced as: <code>", kegg_id, "</code><br>",
+                        if (!is.null(hgnc_symbol) && !is.na(hgnc_symbol) && hgnc_symbol != "") 
+                            paste0("Common name/symbol: <code>", hgnc_symbol, "</code><br>") else "",
+                        "<br>",
+                        "<em>Tip: Search for '", kegg_id, "' in KEGG database<br>",
+                        if (!is.null(hgnc_symbol) && !is.na(hgnc_symbol) && hgnc_symbol != "") 
+                            paste0("or '", hgnc_symbol, "' in gene databases</em>") else "</em>"
                     )
                     
                     # Return as HTML
@@ -689,24 +1010,51 @@ server <- function(input, output, session) {
     output$gene_validation <- renderText({
         validation <- gene_validation_results()
         if (is.null(validation)) {
-            return("Click 'Validate Genes' to check gene symbols")
+            return("Click 'Load Genes' to validate gene IDs")
         }
         
         total_genes <- length(validation$valid_genes) + length(validation$invalid_genes)
         conversion_rate <- round(validation$conversion_rate * 100, 1)
+        id_type_label <- switch(validation$id_type,
+                               "entrez" = "Entrez IDs",
+                               "symbol" = "Gene Symbols",
+                               "ensembl" = "Ensembl IDs", 
+                               "uniprot" = "UniProt IDs",
+                               "Gene IDs")
+        
+        # Count converted Entrez IDs
+        entrez_count <- 0
+        if (!is.null(validation$entrez_mapping)) {
+            entrez_count <- sum(!is.na(validation$entrez_mapping$ENTREZID))
+        }
         
         result <- paste0(
-            "GENE VALIDATION RESULTS\n",
-            "========================\n",
-            "Total genes: ", total_genes, "\n",
-            "Valid genes: ", length(validation$valid_genes), "\n",
-            "Invalid genes: ", length(validation$invalid_genes), "\n",
-            "Conversion rate: ", conversion_rate, "%\n"
+            "GENE ID VALIDATION RESULTS\n",
+            "==========================\n",
+            "Input Type: ", id_type_label, "\n",
+            "Total IDs: ", total_genes, "\n",
+            "Valid IDs: ", length(validation$valid_genes), "\n",
+            "Invalid IDs: ", length(validation$invalid_genes), "\n",
+            "Validation rate: ", conversion_rate, "%\n"
         )
         
-        if (length(validation$invalid_genes) > 0) {
-            result <- paste0(result, "\nInvalid genes:\n", 
-                           paste(validation$invalid_genes, collapse = ", "))
+        if (validation$id_type != "entrez") {
+            result <- paste0(result, "\n🎯 KEGG PATHWAY COMPATIBILITY:\n")
+            result <- paste0(result, "Converted to Entrez IDs: ", entrez_count, "\n")
+            result <- paste0(result, "KEGG conversion rate: ", conversion_rate, "%\n")
+            result <- paste0(result, "\n💡 ", entrez_count, " genes available for KEGG pathway analysis\n")
+        } else {
+            result <- paste0(result, "\n✅ Using Entrez IDs (optimal for KEGG pathways)\n")
+        }
+        
+        if (length(validation$invalid_genes) > 0 && length(validation$invalid_genes) <= 10) {
+            result <- paste0(result, "\n❌ Could not convert:\n", 
+                           paste(validation$invalid_genes, collapse = ", "), "\n")
+            result <- paste0(result, "\n💡 These genes won't be highlighted in pathway visualizations")
+        } else if (length(validation$invalid_genes) > 10) {
+            result <- paste0(result, "\n❌ Could not convert (showing first 10):\n", 
+                           paste(validation$invalid_genes[1:10], collapse = ", "), "...\n")
+            result <- paste0(result, "\n💡 ", length(validation$invalid_genes), " genes won't be highlighted in pathways")
         }
         
         return(result)
@@ -724,9 +1072,16 @@ server <- function(input, output, session) {
     
     # Run KEGG enrichment analysis
     observeEvent(input$run_enrichment, {
-        genes <- uploaded_genes()
-        if (length(genes) == 0) {
+        original_genes <- uploaded_genes()
+        entrez_ids <- converted_entrez_genes()
+        
+        if (length(original_genes) == 0) {
             showNotification("Please load genes first", type = "warning")
+            return()
+        }
+        
+        if (length(entrez_ids) == 0) {
+            showNotification("No valid Entrez IDs found for enrichment analysis. Check your gene IDs.", type = "error")
             return()
         }
         
@@ -735,17 +1090,18 @@ server <- function(input, output, session) {
         progress$set(message = "Starting KEGG enrichment analysis...", value = 0.1)
         on.exit(progress$close())
         
-        showNotification("Running KEGG enrichment analysis...", type = "message")
+        showNotification(paste("Running KEGG enrichment with", length(entrez_ids), "Entrez IDs..."), type = "message")
         
-        progress$set(message = "Converting gene symbols to Entrez IDs...", value = 0.3)
+        progress$set(message = paste("Using", length(entrez_ids), "converted Entrez IDs..."), value = 0.3)
         
-        # Run enrichment analysis
+        # Run enrichment analysis directly with Entrez IDs for optimal performance
         result <- perform_kegg_enrichment(
-            genes, 
+            entrez_ids,  # Use converted Entrez IDs directly
+            id_type = "entrez",  # Always use Entrez for KEGG analysis
             organism = "hsa",
             pvalue_cutoff = input$pvalue_cutoff,
             qvalue_cutoff = input$qvalue_cutoff,
-            progress = progress  # Pass progress object to the function
+            progress = progress
         )
         
         progress$set(message = "Processing results...", value = 0.9)

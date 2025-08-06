@@ -31,38 +31,45 @@ ui <- dashboardPage(
                         title = "Gene Set Management", status = "primary", solidHeader = TRUE,
                         width = 12, collapsible = TRUE,
                         
-                        h4("Upload or Enter Gene Symbols"),
+                        h4("Upload or Enter Gene IDs"),
+                        
+                        # Gene ID Type Selection
+                        fluidRow(
+                            column(6,
+                                selectInput("gene_id_type", "Select Gene ID Type:",
+                                           choices = list(
+                                               "Entrez Gene ID (Recommended for KEGG)" = "entrez",
+                                               "Gene Symbol (HGNC)" = "symbol", 
+                                               "Ensembl Gene ID" = "ensembl",
+                                               "UniProt ID" = "uniprot"
+                                           ),
+                                           selected = "entrez")
+                            ),
+                            column(6,
+                                div(style = "margin-top: 25px; font-size: 12px; color: #666;",
+                                    "💡 Entrez IDs provide best KEGG pathway mapping")
+                            )
+                        ),
+                        
                         tabsetPanel(
                             tabPanel("Text Input",
                                 br(),
-                                div(style = "padding: 10px; background-color: #d1ecf1; border: 1px solid #bee5eb; border-radius: 5px; margin-bottom: 15px;",
-                                    h5(style = "color: #0c5460; margin-top: 0;", "📋 Important: Use HGNC Gene IDs"),
-                                    p(style = "color: #0c5460; margin-bottom: 5px;", 
-                                      "Please use official HGNC (Human Gene Nomenclature Committee) gene symbols."),
-                                    p(style = "color: #0c5460; margin-bottom: 0; font-size: 12px;",
-                                      "Examples: TP53, BRCA1, EGFR, MYC (not Entrez IDs or Ensembl IDs)")
-                                ),
-                                textAreaInput("gene_text", "Enter Gene Symbols (ONE PER LINE):",
-                                             value = "TP53\nBRCA1\nEGFR\nMYC\nGAPDH\nMTOR\nAKT1\nPIK3CA\nPTEN\nTSC1\nINS\nIGF1\nIRS1\nFOXO1\nGSK3B\nVEGFA\nHIF1A\nMAPK1\nRAF1\nRAS",
-                                             placeholder = "REQUIRED: Enter gene symbols separated by newlines ONLY!\nTP53\nBRCA1\nEGFR\nMYC\nGAPDH",
-                                             height = "200px"),
+                                # Dynamic instruction panel based on selected ID type
+                                uiOutput("gene_id_instructions"),
+                                # Dynamic text area that updates examples based on gene ID type
+                                uiOutput("gene_text_input"),
                                 br(),
                                 actionButton("load_genes_text", "Load Genes", class = "btn-info", icon = icon("upload"))
                             ),
                             tabPanel("Upload File",
                                 br(),
-                                div(style = "padding: 10px; background-color: #d1ecf1; border: 1px solid #bee5eb; border-radius: 5px; margin-bottom: 15px;",
-                                    h5(style = "color: #0c5460; margin-top: 0;", "📋 Important: Use HGNC Gene IDs"),
-                                    p(style = "color: #0c5460; margin-bottom: 5px;", 
-                                      "Please use official HGNC (Human Gene Nomenclature Committee) gene symbols."),
-                                    p(style = "color: #0c5460; margin-bottom: 0; font-size: 12px;",
-                                      "Examples: TP53, BRCA1, EGFR, MYC (not Entrez IDs or Ensembl IDs)")
-                                ),
+                                # Dynamic instruction panel for file upload
+                                uiOutput("file_upload_instructions"),
                                 fileInput("gene_file", "Upload Gene List (TXT/CSV):",
                                          accept = c(".txt", ".csv", ".tsv")),
-                                helpText("REQUIRED: One gene symbol per line only (HGNC format, e.g., TP53, BRCA1)"),
+                                helpText("One gene ID per line. File format will be validated based on selected ID type."),
                                 div(style = "color: #d9534f; font-size: 11px;",
-                                    "⚠️ Files must contain newline-separated gene symbols only!")
+                                    "⚠️ Files must contain newline-separated gene IDs only!")
                             )
                         ),
                         

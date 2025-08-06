@@ -34,6 +34,7 @@ get_kegg_node_coordinates <- function(pathway_id) {
                     entry_id <- xml2::xml_attr(entry, "id")
                     entry_name <- xml2::xml_attr(entry, "name")
                     entry_type <- xml2::xml_attr(entry, "type")
+                    entry_link <- xml2::xml_attr(entry, "link")
                     
                     cat("Processing entry", i, "- ID:", entry_id, "Name:", entry_name, "Type:", entry_type, "\n")
                     
@@ -51,16 +52,54 @@ get_kegg_node_coordinates <- function(pathway_id) {
                         bgcolor <- xml2::xml_attr(graphics, "bgcolor")
                         label_text <- xml2::xml_attr(graphics, "name")
                         
-                        # Extract first entry from graphics name (before first comma) for gene aliases
-                        if (!is.na(label_text) && entry_type == "gene") {
-                            # Split by comma and take the first entry, clean up any trailing "..."
-                            first_alias <- strsplit(label_text, ",", fixed = TRUE)[[1]][1]
-                            first_alias <- trimws(first_alias)  # Remove whitespace
-                            first_alias <- gsub("\\.\\.\\.$", "", first_alias)  # Remove trailing "..."
-                            label_text <- first_alias
+                        # Process different entry types differently
+                        node_label <- label_text
+                        hgnc_symbol <- NA
+                        kegg_id <- entry_id
+                        description <- paste("KEGG", entry_type)
+                        
+                        if (entry_type == "gene") {
+                            # For genes, extract first gene symbol from graphics name
+                            if (!is.na(label_text)) {
+                                first_alias <- strsplit(label_text, ",", fixed = TRUE)[[1]][1]
+                                first_alias <- trimws(first_alias)
+                                first_alias <- gsub("\\.\\.\\.$", "", first_alias)
+                                node_label <- first_alias
+                                hgnc_symbol <- first_alias
+                            }
+                            # Extract first numeric ID from entry name
+                            numeric_ids <- regmatches(entry_name, gregexpr("\\d+", entry_name))[[1]]
+                            if (length(numeric_ids) > 0) {
+                                kegg_id <- numeric_ids[1]
+                            }
+                            description <- paste("Gene:", node_label)
+                        } else if (entry_type == "compound") {
+                            # For compounds, use compound ID and name from graphics
+                            if (!is.na(label_text)) {
+                                node_label <- label_text
+                            }
+                            description <- paste("Compound:", node_label)
+                        } else if (entry_type == "map") {
+                            # For pathway maps, extract pathway info
+                            if (!is.na(label_text)) {
+                                node_label <- label_text
+                            }
+                            description <- paste("Pathway:", node_label)
+                        } else if (entry_type == "group") {
+                            # For groups (complexes), use group name
+                            if (!is.na(label_text)) {
+                                node_label <- label_text
+                            }
+                            description <- paste("Complex/Group:", node_label)
+                        } else if (entry_type == "ortholog") {
+                            # For orthologs
+                            if (!is.na(label_text)) {
+                                node_label <- label_text
+                            }
+                            description <- paste("Ortholog:", node_label)
                         }
                         
-                        cat("  Graphics - X:", x, "Y:", y, "Shape:", shape_type, "BgColor:", bgcolor, "\n")
+                        cat("  Graphics - X:", x, "Y:", y, "Type:", entry_type, "Label:", node_label, "\n")
                         
                         if (!is.na(x) && !is.na(y)) {
                             coords_list[[paste0("entry_", entry_id)]] <- list(
@@ -74,7 +113,11 @@ get_kegg_node_coordinates <- function(pathway_id) {
                                 shape = ifelse(is.na(shape_type), "rectangle", shape_type),
                                 fgcolor = ifelse(is.na(fgcolor), "#000000", fgcolor),
                                 bgcolor = ifelse(is.na(bgcolor), "#BFFFBF", bgcolor),
-                                label = ifelse(is.na(label_text), entry_name, label_text)
+                                label = node_label,
+                                hgnc_symbol = hgnc_symbol,
+                                kegg_id = kegg_id,
+                                description = description,
+                                link = ifelse(is.na(entry_link), "", entry_link)
                             )
                             cat("  Added to coords_list\n")
                         } else {
@@ -99,6 +142,10 @@ get_kegg_node_coordinates <- function(pathway_id) {
                             fgcolor = x$fgcolor,
                             bgcolor = x$bgcolor,
                             label = x$label,
+                            hgnc_symbol = x$hgnc_symbol,
+                            kegg_id = x$kegg_id,
+                            description = x$description,
+                            link = x$link,
                             stringsAsFactors = FALSE
                         )
                     }))
@@ -541,8 +588,9 @@ load_kegg_pathway <- function(pathway_id) {
                 sum(nodes_data$type == "gene"), "genes,",
                 sum(nodes_data$type == "compound"), "compounds,",
                 sum(nodes_data$type == "map"), "pathway maps\n")
+            cat("Sample node IDs:", paste(head(nodes_data$id, 3), collapse = ", "), "\n")
             
-            # Also get edges from KEGG XML
+            # Also get edges from KEGG XML (like the old version)
             kegg_edges <- tryCatch({
                 xml_file <- file.path("kegg_cache", paste0(pathway_id, ".xml"))
                 doc <- xml2::read_xml(xml_file)
@@ -758,7 +806,7 @@ extract_edges_from_graph <- function(graph) {
 }
 
 # Simplified KEGG-specific network visualization
-create_kegg_network_visualization <- function(nodes, edges, show_labels = TRUE, show_edges = TRUE, coloring_mode = "kegg_default", highlight_genes = NULL) {
+create_kegg_network_visualization <- function(nodes, edges, show_labels = TRUE, show_edges = TRUE, coloring_mode = "kegg_default", highlight_genes = NULL, id_type = "symbol") {
     
     # Validate inputs
     if (is.null(nodes) || nrow(nodes) == 0) {
@@ -785,7 +833,7 @@ create_kegg_network_visualization <- function(nodes, edges, show_labels = TRUE, 
     # Apply phylostratum coloring if requested
     if (coloring_mode == "phylostratum") {
         tryCatch({
-            nodes <- apply_phylostratum_coloring(nodes)
+            nodes <- apply_phylostratum_coloring(nodes, id_type = id_type)
         }, error = function(e) {
             warning("Failed to apply phylostratum coloring: ", e$message)
             cat("Using default KEGG coloring instead\n")
@@ -1203,12 +1251,14 @@ create_edge_legend <- function(edges) {
 #' Load phylostratum mapping data
 #' @return data.frame with GeneID and Stratum columns
 load_phylomap <- function() {
-    phylomap_path <- file.path("data", "phylomap_hgnc.tsv")
+    # Use comprehensive phylomap with Ensembl data
+    phylomap_path <- file.path("data", "phylomap.tsv")
     if (!file.exists(phylomap_path)) {
-        stop("Phylomap file not found: ", phylomap_path)
+        stop("Comprehensive phylomap file not found: ", phylomap_path)
     }
     
     phylomap <- read.table(phylomap_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+    cat("Loaded comprehensive phylomap with", nrow(phylomap), "protein entries\n")
     return(phylomap)
 }
 
@@ -1216,13 +1266,79 @@ load_phylomap <- function() {
 #' @param gene_symbols character vector of gene symbols
 #' @param phylomap data.frame with GeneID and Stratum columns
 #' @return named vector of strata (names are gene symbols)
-map_genes_to_phylostrata <- function(gene_symbols, phylomap) {
-    # Create a mapping from gene symbols to strata
-    strata_map <- setNames(phylomap$Stratum, phylomap$GeneID)
+map_genes_to_phylostrata <- function(gene_ids, id_type = "symbol", phylomap = NULL) {
+    # Enhanced function to support multiple gene ID types
     
-    # Map the gene symbols
-    gene_strata <- strata_map[gene_symbols]
-    names(gene_strata) <- gene_symbols
+    # Load phylomap if not provided
+    if (is.null(phylomap)) {
+        phylomap <- load_phylomap()
+    }
+    
+    if (id_type == "symbol") {
+        # Use HGNC column for gene symbols with duplicate handling
+        # Filter out empty HGNC symbols
+        valid_hgnc <- phylomap[phylomap$HGNC != "" & !is.na(phylomap$HGNC), ]
+        
+        # Handle duplicates by taking the minimum stratum (most ancient/conservative)
+        hgnc_strata <- aggregate(Stratum ~ HGNC, data = valid_hgnc, FUN = min)
+        strata_map <- setNames(hgnc_strata$Stratum, hgnc_strata$HGNC)
+        gene_strata <- strata_map[gene_ids]
+        
+        # Try case-insensitive matching for unmapped genes
+        unmapped <- is.na(gene_strata)
+        if (any(unmapped)) {
+            # Create case-insensitive mapping
+            upper_hgnc_strata <- aggregate(Stratum ~ HGNC, 
+                                         data = transform(valid_hgnc, HGNC = toupper(HGNC)), 
+                                         FUN = min)
+            upper_strata_map <- setNames(upper_hgnc_strata$Stratum, upper_hgnc_strata$HGNC)
+            gene_strata[unmapped] <- upper_strata_map[toupper(gene_ids[unmapped])]
+        }
+        
+    } else if (id_type == "entrez") {
+        # Use Entrez_ID column for Entrez IDs with duplicate handling
+        # Filter out empty/NA Entrez IDs
+        valid_entrez <- phylomap[!is.na(phylomap$Entrez_ID) & phylomap$Entrez_ID != "", ]
+        
+        # Handle duplicates by taking the minimum stratum (most ancient/conservative)
+        entrez_strata <- aggregate(Stratum ~ Entrez_ID, data = valid_entrez, FUN = min)
+        entrez_strata_map <- setNames(entrez_strata$Stratum, as.character(entrez_strata$Entrez_ID))
+        gene_strata <- entrez_strata_map[as.character(gene_ids)]
+        
+    } else if (id_type == "uniprot") {
+        # Use UniProt column for UniProt IDs with duplicate handling
+        # Filter out empty UniProt IDs
+        valid_uniprot <- phylomap[phylomap$UniProt != "" & !is.na(phylomap$UniProt), ]
+        
+        # Handle duplicates by taking the minimum stratum (most ancient/conservative)
+        uniprot_strata <- aggregate(Stratum ~ UniProt, data = valid_uniprot, FUN = min)
+        uniprot_strata_map <- setNames(uniprot_strata$Stratum, uniprot_strata$UniProt)
+        gene_strata <- uniprot_strata_map[gene_ids]
+        
+    } else if (id_type == "ensembl") {
+        # Use ENSG column for Ensembl Gene IDs with duplicate handling
+        # Filter out empty ENSG IDs
+        valid_ensembl <- phylomap[phylomap$ENSG != "" & !is.na(phylomap$ENSG), ]
+        
+        # Handle duplicates by taking the minimum stratum (most ancient/conservative)
+        ensembl_strata <- aggregate(Stratum ~ ENSG, data = valid_ensembl, FUN = min)
+        ensembl_strata_map <- setNames(ensembl_strata$Stratum, ensembl_strata$ENSG)
+        gene_strata <- ensembl_strata_map[gene_ids]
+        
+    } else {
+        # Fallback to HGNC symbols
+        warning("Unknown id_type '", id_type, "', falling back to HGNC symbol mapping")
+        strata_map <- setNames(phylomap$Stratum, phylomap$HGNC)
+        gene_strata <- strata_map[gene_ids]
+    }
+    
+    names(gene_strata) <- gene_ids
+    
+    # Report mapping statistics
+    mapped_count <- sum(!is.na(gene_strata))
+    total_count <- length(gene_ids)
+    cat("Phylostratum mapping (", id_type, "): ", mapped_count, "/", total_count, 
+        " (", round(100 * mapped_count/total_count, 1), "%)\n", sep="")
     
     return(gene_strata)
 }
@@ -1243,16 +1359,69 @@ PS_colours <- function(n) {
 #' @param nodes data.frame with node information
 #' @param phylomap data.frame with phylostratum mapping
 #' @return nodes data.frame with phylostratum colors applied
-apply_phylostratum_coloring <- function(nodes, phylomap = NULL) {
+apply_phylostratum_coloring <- function(nodes, phylomap = NULL, id_type = "symbol") {
     if (is.null(phylomap)) {
         phylomap <- load_phylomap()
     }
     
-    # Extract gene symbols from node labels
-    gene_symbols <- nodes$label
+    # Filter nodes to only apply phylostratum coloring to gene nodes
+    # Identify gene nodes based on the type column
+    is_gene_node <- rep(FALSE, nrow(nodes))
+    if (!is.null(nodes$type)) {
+        is_gene_node <- nodes$type == "gene" | is.na(nodes$type)
+    } else {
+        # If no type column, assume all nodes with valid gene IDs are genes
+        is_gene_node <- rep(TRUE, nrow(nodes))
+    }
     
-    # Map genes to phylostrata
-    gene_strata <- map_genes_to_phylostrata(gene_symbols, phylomap)
+    # Further filter by checking if nodes have actual gene IDs
+    # Exclude nodes that are clearly not genes (like pathway titles)
+    if (!is.null(nodes$kegg_id)) {
+        # Only consider nodes with valid Entrez IDs as potential genes
+        has_valid_entrez <- !is.na(nodes$kegg_id) & nodes$kegg_id != "" & 
+                           grepl("^\\d+$", nodes$kegg_id)  # Must be numeric
+        is_gene_node <- is_gene_node & has_valid_entrez
+    }
+    
+    # If no gene nodes found, return nodes unchanged
+    gene_node_count <- sum(is_gene_node)
+    if (gene_node_count == 0) {
+        cat("No gene nodes found for phylostratum coloring\n")
+        return(nodes)
+    }
+    
+    cat("Applying phylostratum coloring to", gene_node_count, "out of", nrow(nodes), "nodes\n")
+    
+    # Extract gene IDs only from gene nodes
+    gene_nodes <- nodes[is_gene_node, ]
+    gene_ids <- NULL
+    actual_id_type <- id_type
+    
+    # For KEGG pathway nodes, prioritize Entrez IDs over other ID types
+    if (!is.null(gene_nodes$kegg_id) && any(!is.na(gene_nodes$kegg_id) & gene_nodes$kegg_id != "")) {
+        cat("Using Entrez IDs (kegg_id) from gene nodes for phylostratum mapping\n")
+        gene_ids <- gene_nodes$kegg_id
+        actual_id_type <- "entrez"
+    }
+    # If no Entrez IDs, fall back to HGNC symbols
+    else if (!is.null(gene_nodes$hgnc_symbol) && any(!is.na(gene_nodes$hgnc_symbol) & gene_nodes$hgnc_symbol != "")) {
+        cat("Using HGNC symbols from gene nodes for phylostratum mapping\n")
+        gene_ids <- gene_nodes$hgnc_symbol
+        actual_id_type <- "symbol"
+    }
+    # If no HGNC symbols, try to use labels as last resort
+    else if (!is.null(gene_nodes$label)) {
+        cat("Using node labels for phylostratum mapping with id_type:", id_type, "\n")
+        gene_ids <- gene_nodes$label
+        # Keep the original id_type for labels
+    }
+    else {
+        warning("No suitable gene IDs found in gene nodes for phylostratum mapping")
+        return(nodes)
+    }
+    
+    # Map genes to phylostrata using the determined ID type
+    gene_strata <- map_genes_to_phylostrata(gene_ids, id_type = actual_id_type, phylomap = phylomap)
     
     # Get unique strata present in the data
     unique_strata <- unique(gene_strata[!is.na(gene_strata)])
@@ -1268,18 +1437,25 @@ apply_phylostratum_coloring <- function(nodes, phylomap = NULL) {
     # Create color mapping
     color_map <- setNames(all_colors[unique_strata], unique_strata)
     
-    # Apply colors to nodes
-    nodes$color.background <- ifelse(
+    # Initialize color columns for all nodes (only gene nodes will be modified)
+    nodes$color.background <- NA
+    nodes$color.border <- NA
+    nodes$font.color <- NA
+    
+    # Apply colors only to gene nodes
+    gene_indices <- which(is_gene_node)
+    
+    nodes$color.background[gene_indices] <- ifelse(
         is.na(gene_strata), 
         "#D3D3D3",  # Gray for unmapped genes
         color_map[as.character(gene_strata)]
     )
     
-    # Set border color
-    nodes$color.border <- "#666666"
+    # Set border color only for gene nodes
+    nodes$color.border[gene_indices] <- "#666666"
     
-    # Set text color based on background brightness
-    nodes$font.color <- ifelse(
+    # Set text color based on background brightness only for gene nodes
+    nodes$font.color[gene_indices] <- ifelse(
         is.na(gene_strata),
         "#000000",  # Black text for gray
         sapply(color_map[as.character(gene_strata)], function(color) {
@@ -1291,28 +1467,63 @@ apply_phylostratum_coloring <- function(nodes, phylomap = NULL) {
         })
     )
     
-    # Add stratum information to title for tooltip
+    # Add stratum information to title for tooltip - only for gene nodes
     legend_data <- load_phylostratum_legend()
+    
+    # Initialize title column if it doesn't exist
+    if (is.null(nodes$title)) {
+        nodes$title <- nodes$label  # Default title is the label
+    }
+    
     if (!is.null(legend_data)) {
         # Create a mapping from rank to name
         rank_to_name <- setNames(legend_data$Name, legend_data$Rank)
         
-        nodes$title <- ifelse(
-            is.na(gene_strata),
-            paste0(nodes$label, "\nPhylostratum: Unknown"),
-            paste0(nodes$label, "\nPhylostratum ", gene_strata, ": ", 
-                   rank_to_name[as.character(gene_strata)])
-        )
+        # Only update titles for gene nodes that have phylostratum data
+        valid_gene_indices <- gene_indices[!is.na(gene_strata)]
+        valid_gene_strata <- gene_strata[!is.na(gene_strata)]
+        
+        if (length(valid_gene_indices) > 0) {
+            nodes$title[valid_gene_indices] <- paste0(
+                nodes$label[valid_gene_indices], 
+                "\nPhylostratum ", valid_gene_strata, ": ", 
+                rank_to_name[as.character(valid_gene_strata)]
+            )
+        }
+        
+        # Update titles for gene nodes without phylostratum data
+        unknown_gene_indices <- gene_indices[is.na(gene_strata)]
+        if (length(unknown_gene_indices) > 0) {
+            nodes$title[unknown_gene_indices] <- paste0(
+                nodes$label[unknown_gene_indices], 
+                "\nPhylostratum: Unknown"
+            )
+        }
     } else {
-        nodes$title <- ifelse(
-            is.na(gene_strata),
-            paste0(nodes$label, "\nPhylostratum: Unknown"),
-            paste0(nodes$label, "\nPhylostratum: ", gene_strata)
-        )
+        # Only update titles for gene nodes that have phylostratum data
+        valid_gene_indices <- gene_indices[!is.na(gene_strata)]
+        valid_gene_strata <- gene_strata[!is.na(gene_strata)]
+        
+        if (length(valid_gene_indices) > 0) {
+            nodes$title[valid_gene_indices] <- paste0(
+                nodes$label[valid_gene_indices], 
+                "\nPhylostratum: ", valid_gene_strata
+            )
+        }
+        
+        # Update titles for gene nodes without phylostratum data
+        unknown_gene_indices <- gene_indices[is.na(gene_strata)]
+        if (length(unknown_gene_indices) > 0) {
+            nodes$title[unknown_gene_indices] <- paste0(
+                nodes$label[unknown_gene_indices], 
+                "\nPhylostratum: Unknown"
+            )
+        }
     }
     
-    cat("Applied phylostratum coloring to", sum(!is.na(gene_strata)), "out of", length(gene_strata), "genes\n")
+    cat("Applied phylostratum coloring to", sum(!is.na(gene_strata)), "out of", length(gene_strata), "gene nodes\n")
     cat("Strata represented:", paste(sort(unique_strata), collapse = ", "), "\n")
+    cat("Non-gene nodes (titles, compounds, etc.) left unchanged:", nrow(nodes) - gene_node_count, "nodes\n")
     
     return(nodes)
 }
@@ -1571,15 +1782,16 @@ find_pathways_with_genes <- function(gene_symbols, pathways_list) {
 
 #' Apply gene highlighting to nodes
 #' @param nodes data.frame with node information
-#' @param highlight_genes character vector of gene symbols to highlight
+#' @param highlight_genes character vector of gene identifiers to highlight (can be Entrez IDs, symbols, etc.)
 #' @return nodes data.frame with highlighting applied
 apply_gene_highlighting <- function(nodes, highlight_genes) {
     if (length(highlight_genes) == 0) {
         return(nodes)
     }
     
-    # Convert highlight genes to uppercase for matching
-    highlight_genes <- toupper(highlight_genes)
+    # Convert highlight genes to character for matching
+    highlight_genes <- as.character(highlight_genes)
+    highlight_genes_upper <- toupper(highlight_genes)
     
     # Check which nodes match the genes of interest
     # Only highlight nodes that are actually genes (not compounds or other types)
@@ -1591,16 +1803,45 @@ apply_gene_highlighting <- function(nodes, highlight_genes) {
         is_gene_node <- nodes$type == "gene" | is.na(nodes$type)
     }
     
-    # Match genes only among gene nodes
-    if (!is.null(nodes$hgnc_symbol)) {
-        hgnc_matches <- is_gene_node & (toupper(nodes$hgnc_symbol) %in% highlight_genes)
-        nodes$is_highlighted <- nodes$is_highlighted | hgnc_matches
+    # Priority 1: Match by Entrez IDs (most reliable for KEGG pathways)
+    if (!is.null(nodes$kegg_id)) {
+        # Check if highlight genes are numeric (Entrez IDs)
+        numeric_highlights <- highlight_genes[grepl("^\\d+$", highlight_genes)]
+        if (length(numeric_highlights) > 0) {
+            kegg_matches <- is_gene_node & (nodes$kegg_id %in% numeric_highlights)
+            nodes$is_highlighted <- nodes$is_highlighted | kegg_matches
+            cat("Matched", sum(kegg_matches, na.rm = TRUE), "genes by Entrez ID (kegg_id)\n")
+        }
     }
     
-    # Also check labels (in case HGNC symbols aren't available) - but only for gene nodes
+    # Also check gene_name field for Entrez IDs (like "hsa:2475 hsa:57521")
+    if (!is.null(nodes$gene_name)) {
+        numeric_highlights <- highlight_genes[grepl("^\\d+$", highlight_genes)]
+        if (length(numeric_highlights) > 0) {
+            for (i in seq_len(nrow(nodes))) {
+                if (is_gene_node[i] && !is.na(nodes$gene_name[i])) {
+                    # Extract numeric IDs from entry names like "hsa:2475 hsa:57521"
+                    node_entrez_ids <- regmatches(nodes$gene_name[i], gregexpr("\\d+", nodes$gene_name[i]))[[1]]
+                    if (any(numeric_highlights %in% node_entrez_ids)) {
+                        nodes$is_highlighted[i] <- TRUE
+                    }
+                }
+            }
+        }
+    }
+    
+    # Priority 2: Match by HGNC symbols (for backward compatibility)
+    if (!is.null(nodes$hgnc_symbol)) {
+        hgnc_matches <- is_gene_node & (toupper(nodes$hgnc_symbol) %in% highlight_genes_upper)
+        nodes$is_highlighted <- nodes$is_highlighted | hgnc_matches
+        cat("Matched", sum(hgnc_matches, na.rm = TRUE), "genes by HGNC symbol\n")
+    }
+    
+    # Priority 3: Match by labels (fallback)
     if (!is.null(nodes$label)) {
-        label_matches <- is_gene_node & (toupper(nodes$label) %in% highlight_genes)
+        label_matches <- is_gene_node & (toupper(nodes$label) %in% highlight_genes_upper)
         nodes$is_highlighted <- nodes$is_highlighted | label_matches
+        cat("Matched", sum(label_matches, na.rm = TRUE), "genes by node label\n")
     }
     
     # Apply highlighting colors - only modify highlighted nodes
