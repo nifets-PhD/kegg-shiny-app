@@ -27,7 +27,17 @@ ui <- dashboardPage(
                 }
                 ",
                 generate_custom_css()  # Add custom purple/green theme
-            )))
+            ))),
+            
+            # JavaScript for EMERALD alignment functionality
+            tags$script(HTML("
+                Shiny.addCustomMessageHandler('updateEmeraldLink', function(message) {
+                    var container = document.getElementById('emerald_link_container');
+                    if (container) {
+                        container.innerHTML = message.html;
+                    }
+                });
+            "))
         ),
         
         tabItems(

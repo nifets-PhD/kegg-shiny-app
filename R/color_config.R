@@ -29,22 +29,7 @@ CSS_COLORS <- list(
 # This uses the system defined in global.R with PS_colours function from kegg_utils.R
 # No need to redefine - just reference the existing system
 
-# KEGG Edge Colors (from existing system)
-KEGG_EDGE_COLORS <- list(
-  activation = "#2E8B57",      # Sea green
-  inhibition = "#DC143C",      # Crimson  
-  expression = "#4682B4",      # Steel blue
-  repression = "#B22222",      # Fire brick
-  phosphorylation = "#32CD32", # Lime green
-  dephosphorylation = "#FF6347", # Tomato
-  glycosylation = "#9370DB",   # Medium purple
-  ubiquitination = "#FF8C00",  # Dark orange
-  methylation = "#20B2AA",     # Light sea green
-  binding = "#708090",         # Slate gray
-  compound = "#DAA520",        # Goldenrod
-  hidden = "#D3D3D3",          # Light gray
-  unknown = "#808080"          # Gray
-)
+
 
 # Function to get CSS color
 get_css_color <- function(color_name) {

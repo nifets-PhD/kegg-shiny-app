@@ -884,28 +884,71 @@ server <- function(input, output, session) {
                 Description = legend_data$description,
                 stringsAsFactors = FALSE
             )
-            legend_display
+            
+            # Create the data table with color styling
+            DT::datatable(
+                legend_display,
+                options = list(
+                    pageLength = 20,  # Show more entries per page
+                    paging = FALSE,   # Disable paging to show all entries
+                    searching = FALSE,
+                    ordering = FALSE,
+                    info = FALSE,
+                    dom = 't',        # Only show the table
+                    scrollY = '350px',
+                    scrollCollapse = TRUE,
+                    columnDefs = list(
+                        list(width = '120px', targets = 0),  # Type column
+                        list(width = '250px', targets = 1)   # Description column
+                    )
+                ), 
+                rownames = FALSE,
+                escape = FALSE
+            ) %>%
+            DT::formatStyle(
+                'Type',
+                backgroundColor = DT::styleEqual(
+                    legend_data$relationship,
+                    legend_data$color
+                ),
+                color = DT::styleEqual(
+                    legend_data$relationship,
+                    sapply(legend_data$color, function(color) {
+                        if (is.na(color)) return("#000000")
+                        # Calculate brightness to determine text color
+                        rgb_vals <- col2rgb(color)
+                        brightness <- (rgb_vals[1] * 0.299 + rgb_vals[2] * 0.587 + rgb_vals[3] * 0.114) / 255
+                        if (brightness < 0.5) "#FFFFFF" else "#000000"
+                    })
+                ),
+                fontWeight = "bold"
+            )
         } else {
-            data.frame(
-                Type = "No relationships",
-                Description = "No edge relationships found in this pathway",
-                stringsAsFactors = FALSE
+            DT::datatable(
+                data.frame(
+                    Type = "No relationships",
+                    Description = "No edge relationships found in this pathway",
+                    stringsAsFactors = FALSE
+                ),
+                options = list(
+                    pageLength = 20,  # Show more entries per page
+                    paging = FALSE,   # Disable paging to show all entries
+                    searching = FALSE,
+                    ordering = FALSE,
+                    info = FALSE,
+                    dom = 't',        # Only show the table
+                    scrollY = '350px',
+                    scrollCollapse = TRUE,
+                    columnDefs = list(
+                        list(width = '120px', targets = 0),  # Type column
+                        list(width = '250px', targets = 1)   # Description column
+                    )
+                ), 
+                rownames = FALSE,
+                escape = FALSE
             )
         }
-    }, options = list(
-        pageLength = 20,  # Show more entries per page
-        paging = FALSE,   # Disable paging to show all entries
-        searching = FALSE,
-        ordering = FALSE,
-        info = FALSE,
-        dom = 't',        # Only show the table
-        scrollY = '350px',
-        scrollCollapse = TRUE,
-        columnDefs = list(
-            list(width = '120px', targets = 0),  # Type column
-            list(width = '250px', targets = 1)   # Description column
-        )
-    ), escape = FALSE)
+    })
     
     # Handle node selection
     observe({
@@ -1045,6 +1088,46 @@ server <- function(input, output, session) {
                                 paste0("<strong>3D Structure:</strong> ", uniprot_link, "<br>"))
                         }
                         
+                        # Add EMERALD alignment section if UniProt ID is available
+                        if (!is.null(uniprot_info$uniprotswissprot) && !is.na(uniprot_info$uniprotswissprot) && uniprot_info$uniprotswissprot != "") {
+                            # Store the selected gene's UniProt ID
+                            selected_gene_uniprot(uniprot_info$uniprotswissprot)
+                            
+                            # Get genes in pathway with UniProt IDs for the dropdown
+                            pathway_genes_with_uniprot <- c()
+                            if (!is.null(values$nodes) && nrow(values$nodes) > 0 && !is.null(comprehensive_mapping)) {
+                                for (i in seq_len(nrow(values$nodes))) {
+                                    node <- values$nodes[i, ]
+                                    if (!is.null(node$hgnc_symbol) && !is.na(node$hgnc_symbol) && node$hgnc_symbol != "") {
+                                        # Look up UniProt for this node
+                                        node_mapping <- comprehensive_mapping[
+                                            !is.na(comprehensive_mapping$hgnc_symbol) & 
+                                            comprehensive_mapping$hgnc_symbol == node$hgnc_symbol & 
+                                            !is.na(comprehensive_mapping$uniprotswissprot) & 
+                                            comprehensive_mapping$uniprotswissprot != "", 
+                                        ]
+                                        if (nrow(node_mapping) > 0) {
+                                            pathway_genes_with_uniprot <- c(pathway_genes_with_uniprot, node$hgnc_symbol)
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            # Remove the currently selected gene from the list
+                            pathway_genes_with_uniprot <- setdiff(pathway_genes_with_uniprot, hgnc_symbol)
+                            
+                            if (length(pathway_genes_with_uniprot) > 0) {
+                                uniprot_content_parts <- c(uniprot_content_parts, 
+                                    paste0("<strong>EMERALD Protein Alignment:</strong><br>",
+                                           "Select a second protein from this pathway: <br>",
+                                           "<select id='second_gene_select' onchange='selectSecondGene(this.value)' style='width: 100%; margin: 5px 0;'>",
+                                           "<option value=''>Choose a protein...</option>",
+                                           paste0("<option value='", pathway_genes_with_uniprot, "'>", pathway_genes_with_uniprot, "</option>", collapse = ""),
+                                           "</select><br>",
+                                           "<div id='emerald_link_container' style='margin-top: 5px;'></div>"))
+                            }
+                        }
+                        
                         # Only create the UniProt section if we have additional information beyond the ID
                         if (length(uniprot_content_parts) > 0) {
                             uniprot_section <- paste0(
@@ -1119,7 +1202,7 @@ server <- function(input, output, session) {
                         }
                     }
                     
-                    # Create comprehensive HTML content
+                    # Create comprehensive HTML content with JavaScript for EMERALD alignment
                     html_content <- paste0(
                         gene_id_info,
                         if (phylo_info != "") paste0("<br>", phylo_info) else "",
@@ -1132,7 +1215,20 @@ server <- function(input, output, session) {
                         "<br>",
                         "<em>Tip: Search for '", kegg_id, "' in KEGG database<br>",
                         if (!is.null(hgnc_symbol) && !is.na(hgnc_symbol) && hgnc_symbol != "") 
-                            paste0("or '", hgnc_symbol, "' in gene databases</em>") else "</em>"
+                            paste0("or '", hgnc_symbol, "' in gene databases</em>") else "</em>",
+                        
+                        # Add JavaScript for EMERALD alignment functionality
+                        "<script>
+                        function selectSecondGene(secondGeneSymbol) {
+                            if (!secondGeneSymbol) {
+                                document.getElementById('emerald_link_container').innerHTML = '';
+                                return;
+                            }
+                            
+                            // Send the selected gene to Shiny
+                            Shiny.setInputValue('second_gene_selected', secondGeneSymbol, {priority: 'event'});
+                        }
+                        </script>"
                     )
                     
                     # Return as HTML
@@ -1141,6 +1237,48 @@ server <- function(input, output, session) {
                     HTML("<em>No node selected - click on a node to see detailed gene information</em>")
                 }
             })
+        }
+    })
+    
+    # Handle second gene selection for EMERALD alignment
+    observeEvent(input$second_gene_selected, {
+        req(input$second_gene_selected, selected_gene_uniprot())
+        
+        second_gene_symbol <- input$second_gene_selected
+        first_gene_uniprot <- selected_gene_uniprot()
+        
+        # Get UniProt ID for the second gene
+        if (!is.null(comprehensive_mapping)) {
+            second_gene_mapping <- comprehensive_mapping[
+                !is.na(comprehensive_mapping$hgnc_symbol) & 
+                comprehensive_mapping$hgnc_symbol == second_gene_symbol & 
+                !is.na(comprehensive_mapping$uniprotswissprot) & 
+                comprehensive_mapping$uniprotswissprot != "", 
+            ]
+            
+            if (nrow(second_gene_mapping) > 0) {
+                second_gene_uniprot <- second_gene_mapping$uniprotswissprot[1]
+                
+                # Create EMERALD alignment URL
+                emerald_url <- paste0(
+                    "https://algbio.github.io/emerald-ui/?seqA=", first_gene_uniprot, 
+                    "&seqB=", second_gene_uniprot, "&alpha=0.75&delta=8"
+                )
+                
+                # Update the link container via JavaScript
+                session$sendCustomMessage("updateEmeraldLink", list(
+                    html = paste0(
+                        "<strong>🔗 EMERALD Alignment:</strong> ",
+                        "<a href='", emerald_url, "' target='_blank' style='color: #007bff; text-decoration: underline;'>",
+                        "Align proteins ↗", 
+                        "</a><br>",
+                        "<small style='color: #666;'>Compare ", first_gene_uniprot, " vs ", second_gene_uniprot, "</small>"
+                    )
+                ))
+                
+                second_gene_for_emerald(second_gene_symbol)
+                showNotification(paste("EMERALD alignment ready for", first_gene_uniprot, "vs", second_gene_uniprot), type = "message")
+            }
         }
     })
     
@@ -1199,6 +1337,10 @@ server <- function(input, output, session) {
     # Reactive values for enrichment analysis
     enrichment_results <- reactiveVal(NULL)
     gene_validation_results <- reactiveVal(NULL)
+    
+    # Reactive values for EMERALD alignment
+    selected_gene_uniprot <- reactiveVal(NULL)
+    second_gene_for_emerald <- reactiveVal(NULL)
     
     # Gene validation
     observeEvent(input$validate_genes, {
