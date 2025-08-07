@@ -1,5 +1,59 @@
 # Helper functions for KEGG data processing
 
+#' Get compound names from KEGG compound ID(s)
+#' @param compound_ids character vector of compound IDs (e.g., "C00001", "cpd:C00002")
+#' @return list with first_name, all_names, and tooltip for the compound(s)
+get_compound_info <- function(compound_ids) {
+    if (is.null(compound_ids) || length(compound_ids) == 0 || all(is.na(compound_ids))) {
+        return(list(first_name = NA, all_names = character(0), tooltip = "Unknown compound"))
+    }
+    
+    # Clean compound IDs (remove "cpd:" prefix if present)
+    clean_ids <- gsub("^cpd:", "", compound_ids)
+    clean_ids <- clean_ids[!is.na(clean_ids) & clean_ids != ""]
+    
+    if (length(clean_ids) == 0) {
+        return(list(first_name = NA, all_names = character(0), tooltip = "Unknown compound"))
+    }
+    
+    # Get compound info from global mapping
+    all_names <- character(0)
+    all_compounds_info <- character(0)
+    
+    for (compound_id in clean_ids) {
+        if (!is.null(KEGG_COMPOUND_MAPPING) && compound_id %in% names(KEGG_COMPOUND_MAPPING)) {
+            compound_names <- KEGG_COMPOUND_MAPPING[[compound_id]]
+            # Split by semicolon and clean up
+            names_list <- trimws(strsplit(compound_names, ";")[[1]])
+            all_names <- c(all_names, names_list)
+            
+            # Add compound info for tooltip
+            all_compounds_info <- c(all_compounds_info, 
+                                   paste0(compound_id, ": ", paste(names_list, collapse = ", ")))
+        } else {
+            # Fallback for unknown compounds
+            all_names <- c(all_names, compound_id)
+            all_compounds_info <- c(all_compounds_info, paste0(compound_id, ": Unknown compound"))
+        }
+    }
+    
+    # Get first name for display
+    first_name <- if (length(all_names) > 0) all_names[1] else compound_ids[1]
+    
+    # Create tooltip
+    if (length(clean_ids) > 1) {
+        tooltip <- paste0("Multiple compounds:\n", paste(all_compounds_info, collapse = "\n"))
+    } else {
+        tooltip <- paste0("Compound ", clean_ids[1], ":\n", paste(all_names, collapse = ", "))
+    }
+    
+    return(list(
+        first_name = first_name,
+        all_names = all_names,
+        tooltip = tooltip
+    ))
+}
+
 #' Get centralized KEGG edge relationship color mapping
 #' This ensures consistent colors across the entire application
 #' @return named vector of colors for KEGG relationship types
@@ -629,6 +683,43 @@ load_kegg_pathway <- function(pathway_id) {
                 }
             }
             
+            # Enhanced compound handling with KEGG compound names
+            compound_rows <- nodes_data$type == "compound"
+            if (any(compound_rows)) {
+                cat("Enhancing compound information for", sum(compound_rows), "compounds\n")
+                
+                for (i in which(compound_rows)) {
+                    entry_name <- nodes_data$gene_name[i]
+                    # Extract compound IDs from entry name (e.g., "cpd:C00001 cpd:C00002")
+                    compound_ids <- regmatches(entry_name, gregexpr("C\\d{5}", entry_name))[[1]]
+                    
+                    if (length(compound_ids) > 0) {
+                        # Get compound information using our utility function
+                        compound_info <- get_compound_info(compound_ids)
+                        
+                        # Update node information - use different label for multiple compounds
+                        if (length(compound_ids) > 1) {
+                            nodes_data$label[i] <- "Multiple compounds"
+                            nodes_data$hgnc_symbol[i] <- "Multiple compounds"  # Use for consistency
+                        } else {
+                            nodes_data$label[i] <- compound_info$first_name
+                            nodes_data$hgnc_symbol[i] <- compound_info$first_name  # Use for consistency
+                        }
+                        
+                        nodes_data$description[i] <- paste("Compound:", paste(compound_info$all_names, collapse = ", "))
+                        
+                        # Add tooltip with all compound information
+                        if (!"title" %in% colnames(nodes_data)) {
+                            nodes_data$title <- character(nrow(nodes_data))
+                        }
+                        nodes_data$title[i] <- compound_info$tooltip
+                        
+                        # Set kegg_id to the first compound ID for reference
+                        nodes_data$kegg_id[i] <- compound_ids[1]
+                    }
+                }
+            }
+            
             cat("Created", nrow(nodes_data), "nodes from KEGG data:", 
                 sum(nodes_data$type == "gene"), "genes,",
                 sum(nodes_data$type == "compound"), "compounds,",
@@ -801,6 +892,37 @@ extract_nodes_from_graph <- function(graph) {
             "HGNC Symbol: ", hgnc_mapping$hgnc_symbol, "\n",
             "Original ID: ", hgnc_mapping$original_id
         )
+        
+        # Enhanced compound handling for fallback path
+        compound_rows <- nodes_df$type == "compound"
+        if (any(compound_rows)) {
+            cat("Enhancing compound information for", sum(compound_rows), "compounds (fallback path)\n")
+            
+            for (i in which(compound_rows)) {
+                entry_name <- nodes_df$gene_name[i]
+                # Extract compound IDs from entry name (e.g., "cpd:C00001 cpd:C00002")
+                compound_ids <- regmatches(entry_name, gregexpr("C\\d{5}", entry_name))[[1]]
+                
+                if (length(compound_ids) > 0) {
+                    # Get compound information using our utility function
+                    compound_info <- get_compound_info(compound_ids)
+                    
+                    # Update node information - use different label for multiple compounds
+                    if (length(compound_ids) > 1) {
+                        nodes_df$label[i] <- "Multiple compounds"
+                        nodes_df$hgnc_symbol[i] <- "Multiple compounds"  # Use for consistency
+                    } else {
+                        nodes_df$label[i] <- compound_info$first_name
+                        nodes_df$hgnc_symbol[i] <- compound_info$first_name  # Use for consistency
+                    }
+                    
+                    nodes_df$description[i] <- paste("Compound:", paste(compound_info$all_names, collapse = ", "))
+                    
+                    # Set kegg_id to the first compound ID for reference
+                    nodes_df$kegg_id[i] <- compound_ids[1]
+                }
+            }
+        }
     }
     
     return(nodes_df)
@@ -983,6 +1105,7 @@ prepare_kegg_nodes <- function(nodes, show_labels = TRUE, highlight_genes = NULL
         borderWidthSelected = 2,
         hgnc_symbol = if(!is.null(nodes$hgnc_symbol)) nodes$hgnc_symbol else nodes$label,
         hidden = FALSE,     # Default to visible
+        title = character(nrow(nodes)),  # Initialize title column for tooltips
         stringsAsFactors = FALSE
     )
     
@@ -1072,6 +1195,15 @@ prepare_kegg_nodes <- function(nodes, show_labels = TRUE, highlight_genes = NULL
                     vis_nodes$color[i] <- "#8B5CF6"  # Purple color
                 }
                 vis_nodes$font[[i]]$color <- "#FFFFFF"  # White text
+            }
+            
+            # Style compound nodes: small, uniform size with external labels
+            if (!is.na(node_type) && node_type == "compound") {
+                vis_nodes$size[i] <- 12  # Small uniform size regardless of original size
+                vis_nodes$shape[i] <- "diamond"  # Diamond shape automatically puts label outside
+                
+                # Use smaller font for compound labels
+                vis_nodes$font[[i]]$size <- 10
             }
         }
     }

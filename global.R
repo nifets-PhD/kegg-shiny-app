@@ -83,3 +83,23 @@ GLOBAL_PHYLOSTRATA_COLORS <- {
 }
 
 # Note: Gene mapping data is loaded on-demand to improve startup speed
+
+# Load KEGG compound mapping
+KEGG_COMPOUND_MAPPING <- NULL
+tryCatch({
+    compound_file <- "data/kegg_compounds.tsv"
+    if (file.exists(compound_file)) {
+        compound_data <- read.table(compound_file, sep = "\t", header = FALSE, 
+                                   stringsAsFactors = FALSE, quote = "")
+        names(compound_data) <- c("compound_id", "names")
+        
+        # Create a mapping from compound ID to names
+        KEGG_COMPOUND_MAPPING <- setNames(compound_data$names, compound_data$compound_id)
+        cat("Loaded", length(KEGG_COMPOUND_MAPPING), "KEGG compound names\n")
+    } else {
+        cat("KEGG compound mapping file not found at", compound_file, "\n")
+    }
+}, error = function(e) {
+    cat("Error loading KEGG compound mapping:", e$message, "\n")
+    KEGG_COMPOUND_MAPPING <<- NULL
+})

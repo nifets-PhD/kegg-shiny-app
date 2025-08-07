@@ -1294,6 +1294,40 @@ server <- function(input, output, session) {
                 } else if (node_type == "compound") {
                     # ======= COMPOUND NODE HANDLING =======
                     
+                    # Extract compound information from the selected node
+                    compound_names <- character(0)
+                    compound_ids <- character(0)
+                    
+                    # Try to get compound names from the enhanced node data
+                    if (!is.null(selected_node$description) && !is.na(selected_node$description)) {
+                        # Description contains "Compound: name1, name2, ..." format
+                        desc_parts <- strsplit(selected_node$description, "Compound: ")[[1]]
+                        if (length(desc_parts) > 1) {
+                            compound_names <- trimws(strsplit(desc_parts[2], ",")[[1]])
+                        }
+                    }
+                    
+                    # Extract compound IDs from gene_name (original KEGG entry)
+                    if (!is.null(gene_name) && !is.na(gene_name)) {
+                        compound_ids <- regmatches(gene_name, gregexpr("C\\d{5}", gene_name))[[1]]
+                    }
+                    
+                    # Build compound information section
+                    compound_info_section <- ""
+                    if (length(compound_names) > 0) {
+                        compound_info_section <- paste0(
+                            "<strong>Compound Names:</strong><br>",
+                            paste("• ", compound_names, collapse = "<br>"), "<br><br>"
+                        )
+                    }
+                    
+                    if (length(compound_ids) > 1) {
+                        compound_info_section <- paste0(compound_info_section,
+                            "<strong>Multiple Compounds:</strong><br>",
+                            paste("• ", compound_ids, collapse = "<br>"), "<br><br>"
+                        )
+                    }
+                    
                     # Build relationship info
                     relationship_info <- ""
                     if (nrow(incoming_edges) > 0 || nrow(outgoing_edges) > 0) {
@@ -1351,18 +1385,39 @@ server <- function(input, output, session) {
                         }
                     }
                     
+                    # Create compound links section
+                    compound_links_section <- ""
+                    if (length(compound_ids) > 0) {
+                        compound_links_section <- paste0(
+                            "<br><strong>=== KEGG DATABASE LINKS ===</strong><br>",
+                            paste(sapply(compound_ids, function(cid) {
+                                paste0("<strong>", cid, ":</strong> ",
+                                      "<a href='https://www.kegg.jp/entry/", cid, "' target='_blank' style='color: #007bff; text-decoration: underline;'>",
+                                      "View in KEGG ↗</a>")
+                            }), collapse = "<br>"),
+                            "<br>"
+                        )
+                    } else if (!is.null(kegg_id) && kegg_id != "") {
+                        compound_links_section <- paste0(
+                            "<br><strong>=== KEGG DATABASE LINK ===</strong><br>",
+                            "<a href='https://www.kegg.jp/entry/", kegg_id, "' target='_blank' style='color: #007bff; text-decoration: underline;'>",
+                            "View ", kegg_id, " in KEGG ↗</a><br>"
+                        )
+                    }
+                    
                     # Create compound HTML content
                     html_content <- paste0(
                         "<strong>=== COMPOUND INFORMATION ===</strong><br>",
-                        "<strong>Node Type:</strong> ", node_type, "<br>",
+                        compound_info_section,
                         "<strong>KEGG Compound ID:</strong> <code>", kegg_id, "</code><br>",
                         "<strong>Original KEGG Entry:</strong> <code>", gene_name, "</code><br>",
                         "<strong>Display Label:</strong> ", display_label, "<br>",
                         relationship_info,
+                        compound_links_section,
                         "<br><strong>=== PATHWAY CONTEXT ===</strong><br>",
-                        "In KEGG, this compound is referenced as: <code>", kegg_id, "</code><br>",
+                        "This compound participates in pathway reactions.<br>",
                         "<br>",
-                        "<em>Tip: Search for '", kegg_id, "' in KEGG COMPOUND database</em>"
+                        "<em>Tip: Click the KEGG links above to view detailed compound information</em>"
                     )
                     
                     # Return as HTML
