@@ -66,6 +66,7 @@ source("R/kegg_utils.R")
 source("R/network_utils.R")
 source("R/enrichment_utils.R")
 source("R/evolutionary_utils.R")
+source("R/node_info_utils.R")
 
 # Pre-compute global phylostratum color palette for consistency
 # This ensures phylostratum 1 is always black regardless of how many strata are present

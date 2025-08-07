@@ -1279,8 +1279,7 @@ server <- function(input, output, session) {
             )
         }
     })
-    
-    # Handle node selection
+
     observe({
         input$pathway_network_selected
         
@@ -1288,860 +1287,33 @@ server <- function(input, output, session) {
             selected_node <- values$nodes[values$nodes$id == input$pathway_network_selected, ]
             
             output$node_info <- renderUI({
-                if (nrow(selected_node) > 0) {
-
-
-                    # Find edges connected to this node
-                    node_id <- selected_node$id
-                    incoming_edges <- values$edges[values$edges$to == node_id, ]
-                    outgoing_edges <- values$edges[values$edges$from == node_id, ]
-                    
-                    
-                    # Get basic node information
-                    hgnc_symbol <- selected_node$hgnc_symbol
-                    kegg_id <- selected_node$kegg_id
-                    gene_name <- selected_node$gene_name
-                    display_label <- selected_node$label
-                    node_type <- selected_node$type
-                    
-                    # Handle different node types
-                    if (node_type == "gene") {
-                        # ======= GENE NODE HANDLING =======
-                        
-                        # Check if this is a consolidated gene node
-                        is_consolidated <- !is.null(selected_node$is_consolidated) && 
-                                         !is.na(selected_node$is_consolidated) && 
-                                         selected_node$is_consolidated
-                        
-                        if (is_consolidated) {
-                            # ======= CONSOLIDATED GENE NODE =======
-                            gene_count <- selected_node$gene_count
-                            all_hsa_ids <- strsplit(selected_node$all_hsa_ids, ",")[[1]]
-                            all_gene_symbols <- strsplit(selected_node$all_gene_symbols, ",")[[1]]
-                            
-                            # Get pathway genes with UniProt IDs for EMERALD comparison  
-                            pathway_genes_with_uniprot <- get_pathway_genes_with_uniprot(selected_node$id)
-                            
-                            # Process each individual gene with enhanced information
-                            genes_info_html <- ""
-                            for (i in seq_along(all_gene_symbols)) {
-                                symbol <- trimws(all_gene_symbols[i])
-                                hsa_id <- if (i <= length(all_hsa_ids)) trimws(all_hsa_ids[i]) else ""
-                                
-                                # Get info for this specific gene with EMERALD options
-                                gene_info_result <- get_gene_info_for_consolidated(symbol, hsa_id, comprehensive_mapping, pathway_genes_with_uniprot, selected_node)
-                                genes_info_html <- paste0(genes_info_html, 
-                                    "<div style='margin-bottom: 15px; border-left: 3px solid #007cba; padding-left: 10px; background-color: #f8f9fa;'>",
-                                    gene_info_result$html,
-                                    "</div>"
-                                )
-                            }
-                            
-                            # Build relationship information
-                            relationship_info <- build_relationship_info(incoming_edges, outgoing_edges)
-                            
-                            # Create consolidated display
-                            html_content <- paste0(
-                                "<div style='font-family: monospace; font-size: 14px; line-height: 1.6;'>",
-                                "<strong>=== CONSOLIDATED GENE NODE ===</strong><br>",
-                                "<strong>Node Type:</strong> ", if (gene_count > 1) "Multi-gene entry" else "Gene complex/group", "<br>",
-                                "<strong>Gene Count:</strong> ", gene_count, " genes<br>",
-                                "<strong>Display Label:</strong> ", display_label, "<br>",
-                                
-                                "<br><strong>=== INDIVIDUAL GENES ===</strong><br>",
-                                genes_info_html,
-                                
-                                relationship_info,
-                                
-                                # Add JavaScript for EMERALD alignment functionality
-                                "<script>
-                                function selectSecondGeneForGene(firstGene, firstUniProt, secondGeneSymbol, containerId) {
-                                    if (!secondGeneSymbol) {
-                                        document.getElementById(containerId + '_container').innerHTML = '';
-                                        return;
-                                    }
-                                    
-                                    // Create proper EMERALD URL - need to get UniProt ID for second gene
-                                    // For now, send to Shiny server to handle the lookup and URL construction
-                                    Shiny.setInputValue('emerald_request', {
-                                        firstGene: firstGene,
-                                        firstUniProt: firstUniProt,
-                                        secondGene: secondGeneSymbol,
-                                        containerId: containerId
-                                    }, {priority: 'event'});
-                                }
-                                </script>",
-                                
-                                "</div>"
-                            )
-                            
-                            # Get phylostratum information if available
-                            if (!is.null(selected_node$phylostratum) && !is.na(selected_node$phylostratum)) {
-                                phylo_stratum <- selected_node$phylostratum
-                                # Load phylostratum legend to get the name
-                                legend_data <- tryCatch({
-                                    source("R/kegg_utils.R", local = TRUE)
-                                    load_phylostratum_legend()
-                                }, error = function(e) NULL)
-                                
-                                if (!is.null(legend_data)) {
-                                    phylo_name <- legend_data$Name[legend_data$Rank == phylo_stratum]
-                                    if (length(phylo_name) > 0) {
-                                        phylo_info <- paste0(
-                                            "<br><strong>=== PHYLOSTRATUM ===</strong><br>",
-                                            "<strong>Phylostratum:</strong> ", phylo_stratum, " - ", phylo_name[1], "<br>"
-                                        )
-                                    } else {
-                                        phylo_info <- paste0(
-                                            "<br><strong>=== PHYLOSTRATUM ===</strong><br>",
-                                            "<strong>Phylostratum:</strong> ", phylo_stratum, "<br>"
-                                        )
-                                    }
-                                } else {
-                                    phylo_info <- paste0(
-                                        "<br><strong>=== PHYLOSTRATUM ===</strong><br>",
-                                        "<strong>Phylostratum:</strong> ", phylo_stratum, "<br>"
-                                    )
-                                }
-                            }
-                            
-                            # Collect genes with UniProt IDs for EMERALD alignment
-                            pathway_genes_with_uniprot <- c()
-                            consolidated_genes_with_uniprot <- c()
-                            
-                            for (i in seq_along(all_gene_symbols)) {
-                                symbol <- trimws(all_gene_symbols[i])
-                                hsa_id <- if (i <= length(all_hsa_ids)) trimws(all_hsa_ids[i]) else ""
-                                
-                                # Get info for this specific gene
-                                gene_info_result <- get_gene_info_for_consolidated(symbol, hsa_id, comprehensive_mapping, NULL, selected_node)
-                                genes_info_html <- paste0(genes_info_html, 
-                                    "<div style='margin-bottom: 10px; border-left: 3px solid #007cba; padding-left: 10px;'>",
-                                    gene_info_result$html,
-                                    "</div>"
-                                )
-                                
-                                # Check if this gene has UniProt ID for EMERALD
-                                if (!is.null(gene_info_result$gene_info) && 
-                                    !is.null(gene_info_result$gene_info$uniprotswissprot) && 
-                                    !is.na(gene_info_result$gene_info$uniprotswissprot) && 
-                                    gene_info_result$gene_info$uniprotswissprot != "") {
-                                    consolidated_genes_with_uniprot <- c(consolidated_genes_with_uniprot, symbol)
-                                }
-                            }
-                            
-                            # Get other pathway genes with UniProt IDs for EMERALD comparison
-                            if (!is.null(values$nodes) && nrow(values$nodes) > 0 && !is.null(comprehensive_mapping)) {
-                                for (i in seq_len(nrow(values$nodes))) {
-                                    node <- values$nodes[i, ]
-                                    if (!is.null(node$hgnc_symbol) && !is.na(node$hgnc_symbol) && node$hgnc_symbol != "" &&
-                                        node$id != selected_node$id) {  # Exclude current node
-                                        # Look up UniProt for this node
-                                        node_mapping <- comprehensive_mapping[
-                                            !is.na(comprehensive_mapping$hgnc_symbol) & 
-                                            comprehensive_mapping$hgnc_symbol == node$hgnc_symbol & 
-                                            !is.na(comprehensive_mapping$uniprotswissprot) & 
-                                            comprehensive_mapping$uniprotswissprot != "", 
-                                        ]
-                                        if (nrow(node_mapping) > 0) {
-                                            pathway_genes_with_uniprot <- c(pathway_genes_with_uniprot, node$hgnc_symbol)
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            # Process each individual gene with enhanced information
-                            for (i in seq_along(all_gene_symbols)) {
-                                symbol <- trimws(all_gene_symbols[i])
-                                hsa_id <- if (i <= length(all_hsa_ids)) trimws(all_hsa_ids[i]) else ""
-                                
-                                # Get info for this specific gene with EMERALD options
-                                gene_info_result <- get_gene_info_for_consolidated(symbol, hsa_id, comprehensive_mapping, pathway_genes_with_uniprot, selected_node)
-                                genes_info_html <- paste0(genes_info_html, 
-                                    "<div style='margin-bottom: 15px; border-left: 3px solid #007cba; padding-left: 10px; background-color: #f8f9fa;'>",
-                                    gene_info_result$html,
-                                    "</div>"
-                                )
-                            }
-                            
-                            # Build relationship info
-                            relationship_info <- ""
-                            if (nrow(incoming_edges) > 0 || nrow(outgoing_edges) > 0) {
-                                relationship_info <- paste0(
-                                    "<br><strong>=== NETWORK RELATIONSHIPS ===</strong><br>",
-                                    "Incoming connections: ", nrow(incoming_edges), "<br>",
-                                    "Outgoing connections: ", nrow(outgoing_edges), "<br>"
-                                )
-                                
-                                # Show some specific relationships
-                                if (nrow(incoming_edges) > 0) {
-                                    sample_incoming <- head(incoming_edges, 3)
-                                    for (i in seq_len(nrow(sample_incoming))) {
-                                        edge <- sample_incoming[i, ]
-                                        rel_type <- if (!is.null(edge$relation_type) && !is.na(edge$relation_type)) edge$relation_type else "Unknown"
-                                        subtype <- if (!is.null(edge$subtype) && !is.na(edge$subtype) && edge$subtype != "") edge$subtype else ""
-                                        
-                                        # Find the source node name
-                                        source_node <- values$nodes[values$nodes$id == edge$from, ]
-                                        source_name <- edge$from  # default fallback
-                                        if (nrow(source_node) > 0) {
-                                            if (!is.null(source_node$hgnc_symbol) && !is.na(source_node$hgnc_symbol) && source_node$hgnc_symbol != "") {
-                                                source_name <- source_node$hgnc_symbol
-                                            } else if (!is.null(source_node$label) && !is.na(source_node$label) && source_node$label != "") {
-                                                source_name <- source_node$label
-                                            }
-                                        }
-                                        
-                                        relationship_info <- paste0(relationship_info, 
-                                            "← ", source_name, " (", rel_type, 
-                                            if (subtype != "") paste0(": ", subtype) else "", ")", "<br>")
-                                    }
-                                }
-                                
-                                if (nrow(outgoing_edges) > 0) {
-                                    sample_outgoing <- head(outgoing_edges, 3)
-                                    for (i in seq_len(nrow(sample_outgoing))) {
-                                        edge <- sample_outgoing[i, ]
-                                        rel_type <- if (!is.null(edge$relation_type) && !is.na(edge$relation_type)) edge$relation_type else "Unknown"
-                                        subtype <- if (!is.null(edge$subtype) && !is.na(edge$subtype) && edge$subtype != "") edge$subtype else ""
-                                        
-                                        # Find the target node name
-                                        target_node <- values$nodes[values$nodes$id == edge$to, ]
-                                        target_name <- edge$to  # default fallback
-                                        if (nrow(target_node) > 0) {
-                                            if (!is.null(target_node$hgnc_symbol) && !is.na(target_node$hgnc_symbol) && target_node$hgnc_symbol != "") {
-                                                target_name <- target_node$hgnc_symbol
-                                            } else if (!is.null(target_node$label) && !is.na(target_node$label) && target_node$label != "") {
-                                                target_name <- target_node$label
-                                            }
-                                        }
-                                        
-                                        relationship_info <- paste0(relationship_info, 
-                                            "→ ", target_name, " (", rel_type, 
-                                            if (subtype != "") paste0(": ", subtype) else "", ")", "<br>")
-                                    }
-                                }
-                            }
-                            
-                            # Create consolidated display with enhanced functionality
-                            html_content <- paste0(
-                                "<div style='font-family: monospace; font-size: 14px; line-height: 1.6;'>",
-                                "<strong>=== CONSOLIDATED GENE NODE ===</strong><br>",
-                                "<strong>Node Type:</strong> ", if (gene_count > 1) "Multi-gene entry" else "Gene complex/group", "<br>",
-                                "<strong>Gene Count:</strong> ", gene_count, " genes<br>",
-                                "<strong>Display Label:</strong> ", display_label, "<br>",
-                                
-                                "<br><strong>=== INDIVIDUAL GENES ===</strong><br>",
-                                genes_info_html,
-                                
-                                relationship_info,
-                                
-                                # Add JavaScript for EMERALD alignment functionality
-                                "<script>
-                                function selectSecondGeneForGene(firstGene, firstUniProt, secondGeneSymbol, containerId) {
-                                    if (!secondGeneSymbol) {
-                                        document.getElementById(containerId + '_container').innerHTML = '';
-                                        return;
-                                    }
-                                    
-                                    // Create proper EMERALD URL - send to Shiny server to handle UniProt lookup
-                                    Shiny.setInputValue('emerald_request', {
-                                        firstGene: firstGene,
-                                        firstUniProt: firstUniProt,
-                                        secondGene: secondGeneSymbol,
-                                        containerId: containerId
-                                    }, {priority: 'event'});
-                                }
-                                </script>",
-                                
-                                "</div>"
-                            )
-                            
-                        } else {
-                            # ======= SINGLE GENE NODE (Treat as consolidated with count=1) =======
-                            
-                            # Set up single gene as if it were a consolidated node with 1 gene
-                            gene_count <- 1
-                            
-                            # Extract gene symbol from title
-                            extracted_symbol <- if ("title" %in% names(selected_node) && 
-                                                   !is.null(selected_node$title) && 
-                                                   !is.na(selected_node$title) && 
-                                                   selected_node$title != "") {
-                                title_text <- trimws(selected_node$title)
-                                if (grepl("^Gene: ", title_text)) {
-                                    gene_part <- strsplit(title_text, "\n")[[1]][1]
-                                    gsub("^Gene: ", "", gene_part)
-                                } else {
-                                    title_text
-                                }
-                            } else if (!is.null(gene_name) && !is.na(gene_name) && 
-                                       grepl("^hsa:", gene_name)) {
-                                entrez_id <- sub("^hsa:", "", gene_name)
-                                if (!is.null(comprehensive_mapping) && entrez_id %in% comprehensive_mapping$entrezgene_id) {
-                                    match_idx <- which(comprehensive_mapping$entrezgene_id == entrez_id)[1]
-                                    comprehensive_mapping$hgnc_symbol[match_idx]
-                                } else {
-                                    entrez_id
-                                }
-                            } else {
-                                gene_name
-                            }
-                            
-                            # Set up as arrays (like consolidated nodes)
-                            all_hsa_ids <- c(gene_name)
-                            all_gene_symbols <- c(extracted_symbol)
-                            
-                            # Now use the exact same logic as consolidated nodes from here...
-                            
-                            # Get pathway genes with UniProt IDs for EMERALD comparison  
-                            pathway_genes_with_uniprot <- get_pathway_genes_with_uniprot(selected_node$id)
-                            
-                            # Process each individual gene with enhanced information (single gene case)
-                            genes_info_html <- ""
-                            for (i in seq_along(all_gene_symbols)) {
-                                symbol <- trimws(all_gene_symbols[i])
-                                hsa_id <- if (i <= length(all_hsa_ids)) trimws(all_hsa_ids[i]) else ""
-                                
-                                # Get info for this specific gene with EMERALD options
-                                gene_info_result <- get_gene_info_for_consolidated(symbol, hsa_id, comprehensive_mapping, pathway_genes_with_uniprot, selected_node)
-                                genes_info_html <- paste0(genes_info_html, 
-                                    "<div style='margin-bottom: 15px; border-left: 3px solid #007cba; padding-left: 10px; background-color: #f8f9fa;'>",
-                                    gene_info_result$html,
-                                    "</div>"
-                                )
-                            }
-                            
-                            # Build relationship information
-                            relationship_info <- build_relationship_info(incoming_edges, outgoing_edges)
-                            
-                            # Create final HTML content
-                            html_content <- paste0(
-                                "<div style='font-family: monospace; font-size: 14px; line-height: 1.6;'>",
-                                "<strong>=== GENE NODE ===</strong><br>",
-                                "<strong>Node Type:</strong> Single gene<br>",
-                                "<strong>Display Label:</strong> ", display_label, "<br>",
-                                "<strong>Gene Count:</strong> ", gene_count, "<br>",
-                                "<strong>Gene Symbol(s):</strong> ", paste(all_gene_symbols, collapse=", "), "<br>",
-                                "<strong>KEGG Entry(s):</strong> <code>", paste(all_hsa_ids, collapse=", "), "</code><br>",
-                                
-                                "<br><strong>=== GENE INFORMATION ===</strong><br>",
-                                genes_info_html,
-                                
-                                relationship_info,
-                                
-                                "<br><strong>=== PATHWAY CONTEXT ===</strong><br>",
-                                "In KEGG, this gene is referenced as: <code>", paste(all_hsa_ids, collapse=", "), "</code><br>",
-                                "Common name/symbol: <code>", paste(all_gene_symbols, collapse=", "), "</code><br>",
-                                "<br>",
-                                "<em>Tip: Search for '", paste(all_hsa_ids, collapse="' or '"), "' in KEGG database<br>",
-                                "or '", paste(all_gene_symbols, collapse="' or '"), "' in gene databases</em>",
-                                
-                                "</div>"
-                            )
-                        }
-                        
-                        # Return as HTML
-                        HTML(html_content)
-                        
-                    } else if (node_type == "compound") {
-                        # ======= COMPOUND NODE HANDLING =======
-                                # If we have an HSA ID but no title, map it to a symbol
-                                entrez_id <- sub("^hsa:", "", gene_name)
-                                if (!is.null(comprehensive_mapping) && entrez_id %in% comprehensive_mapping$entrezgene_id) {
-                                    match_idx <- which(comprehensive_mapping$entrezgene_id == entrez_id)[1]
-                                    comprehensive_mapping$hgnc_symbol[match_idx]
-                                } else {
-                                    entrez_id
-                                }
-                            } else {
-                                gene_name
-                            }
-                            
-                            # Set display label for single gene node
-                            display_label <- if (!is.null(selected_node$label) && !is.na(selected_node$label) && selected_node$label != "") {
-                                selected_node$label
-                            } else if (!is.null(gene_symbol) && !is.na(gene_symbol) && gene_symbol != "") {
-                                gene_symbol
-                            } else {
-                                gene_name
-                            }
-                            
-                            # Initialize variables for single gene processing
-                            emerald_section <- ""
-                            relationship_info <- ""
-                            
-                            # Get comprehensive gene information
-                            gene_info_result <- get_gene_info_for_consolidated(gene_symbol, gene_name, comprehensive_mapping, NULL, selected_node)
-                            
-                            # Get phylostratum information if available
-                            phylo_info <- ""
-                            phylo_stratum <- NULL
-                            
-                            # First try to get phylostratum from selected_node
-                            if (!is.null(selected_node$phylostratum) && !is.na(selected_node$phylostratum)) {
-                                phylo_stratum <- selected_node$phylostratum
-                            } else {
-                                # Fallback: try to look up phylostratum using gene info
-                                phylo_stratum <- tryCatch({
-                                    # Use already loaded phylomap data if available
-                                    if (!exists("phylomap_data") || is.null(phylomap_data)) {
-                                        source("R/kegg_utils.R", local = TRUE)
-                                        phylomap_data <<- load_phylomap(verbose = FALSE)  # Cache in global environment
-                                    }
-                                    
-                                    if (!is.null(phylomap_data)) {
-                                        # First try by gene symbol using map_genes_to_phylostrata
-                                        if (!is.null(gene_symbol) && !is.na(gene_symbol) && gene_symbol != "") {
-                                            gene_strata <- map_genes_to_phylostrata(gene_symbol, "symbol", phylomap = phylomap_data, verbose = FALSE)
-                                            if (!is.na(gene_strata[1])) {
-                                                cat("Found phylostratum for", gene_symbol, ":", gene_strata[1], "\n")
-                                                return(gene_strata[1])
-                                            }
-                                        }
-                                        
-                                        # If no result by symbol, try by Entrez ID
-                                        if (!is.null(gene_name) && grepl("^hsa:", gene_name)) {
-                                            entrez_id <- sub("^hsa:", "", gene_name)
-                                            gene_strata <- map_genes_to_phylostrata(entrez_id, "entrez", phylomap = phylomap_data, verbose = FALSE)
-                                            if (!is.na(gene_strata[1])) {
-                                                cat("Found phylostratum for Entrez", entrez_id, ":", gene_strata[1], "\n")
-                                                return(gene_strata[1])
-                                            }
-                                        }
-                                        
-                                        cat("No phylostratum found for", if(!is.null(gene_symbol)) gene_symbol else gene_name, "\n")
-                                        return(NULL)
-                                    } else {
-                                        cat("Phylomap data not available\n")
-                                        return(NULL)
-                                    }
-                                }, error = function(e) {
-                                    cat("Error looking up phylostratum for", if(!is.null(gene_symbol)) gene_symbol else gene_name, ":", e$message, "\n")
-                                    NULL
-                                })
-                            }
-                            
-                            # If we found a phylostratum, display it with color
-                            if (!is.null(phylo_stratum) && !is.na(phylo_stratum)) {
-                                # Load phylostratum legend to get the name and color
-                                legend_data <- tryCatch({
-                                    source("R/kegg_utils.R", local = TRUE)
-                                    if (!is.null(phylo_legend_data)) {
-                                        phylo_legend_data  # Use cached data
-                                    } else {
-                                        load_phylostratum_legend()  # Load if not cached
-                                    }
-                                }, error = function(e) NULL)
-                                
-                                if (!is.null(legend_data)) {
-                                    phylo_row <- legend_data[legend_data$Rank == phylo_stratum, ]
-                                    if (nrow(phylo_row) > 0) {
-                                        phylo_name <- phylo_row$Name[1]
-                                        phylo_color <- if (!is.null(phylo_row$Color) && !is.na(phylo_row$Color[1])) phylo_row$Color[1] else "#000000"
-                                        phylo_info <- paste0(
-                                            "<br><strong>=== PHYLOSTRATUM ===</strong><br>",
-                                            "<div style='background-color: ", phylo_color, "; color: white; padding: 4px 8px; border-radius: 4px; display: inline-block; margin: 2px 0;'>",
-                                            "<strong>Phylostratum:</strong> ", phylo_stratum, " - ", phylo_name,
-                                            "</div><br>"
-                                        )
-                                    } else {
-                                        phylo_info <- paste0(
-                                            "<br><strong>=== PHYLOSTRATUM ===</strong><br>",
-                                            "<strong>Phylostratum:</strong> ", phylo_stratum, "<br>"
-                                        )
-                                    }
-                                } else {
-                                    phylo_info <- paste0(
-                                        "<br><strong>=== PHYLOSTRATUM ===</strong><br>",
-                                        "<strong>Phylostratum:</strong> ", phylo_stratum, "<br>"
-                                    )
-                                }
-                            }
-                            
-                            # Get edge information for single gene node
-                            node_id <- selected_node$id
-                            incoming_edges <- values$edges[values$edges$to == node_id, ]
-                            outgoing_edges <- values$edges[values$edges$from == node_id, ]
-                            
-                            # Build EMERALD alignment section
-                            emerald_section <- ""
-                            if (!is.null(gene_info_result$gene_info) && 
-                                !is.null(gene_info_result$gene_info$uniprotswissprot) && 
-                                !is.na(gene_info_result$gene_info$uniprotswissprot) && 
-                                gene_info_result$gene_info$uniprotswissprot != "") {
-                                
-                                # Get genes in pathway with UniProt IDs for the dropdown
-                                pathway_genes_with_uniprot <- c()
-                                if (!is.null(values$nodes) && nrow(values$nodes) > 0 && !is.null(comprehensive_mapping)) {
-                                    for (i in seq_len(nrow(values$nodes))) {
-                                        node <- values$nodes[i, ]
-                                        if (!is.null(node$hgnc_symbol) && !is.na(node$hgnc_symbol) && node$hgnc_symbol != "" &&
-                                            node$id != selected_node$id) {  # Exclude current node
-                                            # Look up UniProt for this node
-                                            node_mapping <- comprehensive_mapping[
-                                                !is.na(comprehensive_mapping$hgnc_symbol) & 
-                                                comprehensive_mapping$hgnc_symbol == node$hgnc_symbol & 
-                                                !is.na(comprehensive_mapping$uniprotswissprot) & 
-                                                comprehensive_mapping$uniprotswissprot != "", 
-                                            ]
-                                            if (nrow(node_mapping) > 0) {
-                                                pathway_genes_with_uniprot <- c(pathway_genes_with_uniprot, node$hgnc_symbol)
-                                            }
-                                        }
-                                    }
-                                }
-                                
-                                if (length(pathway_genes_with_uniprot) > 0) {
-                                    emerald_section <- paste0(
-                                        "<br><strong>=== EMERALD PROTEIN ALIGNMENT ===</strong><br>",
-                                        "Select a second protein from this pathway: <br>",
-                                        "<select id='second_gene_select_single' onchange='selectSecondGeneSingle(this.value)' style='width: 100%; margin: 5px 0;'>",
-                                        "<option value=''>Choose a protein...</option>",
-                                        paste0("<option value='", pathway_genes_with_uniprot, "'>", pathway_genes_with_uniprot, "</option>", collapse = ""),
-                                        "</select><br>",
-                                        "<div id='emerald_link_container_single' style='margin-top: 5px;'></div>"
-                                    )
-                                }
-                            }
-                            
-                            # Build relationship info
-                            relationship_info <- ""
-                            if (nrow(incoming_edges) > 0 || nrow(outgoing_edges) > 0) {
-                                relationship_info <- paste0(
-                                    "<br><strong>=== NETWORK RELATIONSHIPS ===</strong><br>",
-                                    "Incoming connections: ", nrow(incoming_edges), "<br>",
-                                    "Outgoing connections: ", nrow(outgoing_edges), "<br>"
-                                )
-                                
-                                # Show some specific relationships
-                                if (nrow(incoming_edges) > 0) {
-                                    sample_incoming <- head(incoming_edges, 3)
-                                    for (i in seq_len(nrow(sample_incoming))) {
-                                        edge <- sample_incoming[i, ]
-                                        rel_type <- if (!is.null(edge$relation_type) && !is.na(edge$relation_type)) edge$relation_type else "Unknown"
-                                        subtype <- if (!is.null(edge$subtype) && !is.na(edge$subtype) && edge$subtype != "") edge$subtype else ""
-                                        
-                                        # Find the source node name
-                                        source_node <- values$nodes[values$nodes$id == edge$from, ]
-                                        source_name <- edge$from  # default fallback
-                                        if (nrow(source_node) > 0) {
-                                            if (!is.null(source_node$hgnc_symbol) && !is.na(source_node$hgnc_symbol) && source_node$hgnc_symbol != "") {
-                                                source_name <- source_node$hgnc_symbol
-                                            } else if (!is.null(source_node$label) && !is.na(source_node$label) && source_node$label != "") {
-                                                source_name <- source_node$label
-                                            }
-                                        }
-                                        
-                                        relationship_info <- paste0(relationship_info, 
-                                            "← ", source_name, " (", rel_type, 
-                                            if (subtype != "") paste0(": ", subtype) else "", ")", "<br>")
-                                    }
-                                }
-                                
-                                if (nrow(outgoing_edges) > 0) {
-                                    sample_outgoing <- head(outgoing_edges, 3)
-                                    for (i in seq_len(nrow(sample_outgoing))) {
-                                        edge <- sample_outgoing[i, ]
-                                        rel_type <- if (!is.null(edge$relation_type) && !is.na(edge$relation_type)) edge$relation_type else "Unknown"
-                                        subtype <- if (!is.null(edge$subtype) && !is.na(edge$subtype) && edge$subtype != "") edge$subtype else ""
-                                        
-                                        # Find the target node name
-                                        target_node <- values$nodes[values$nodes$id == edge$to, ]
-                                        target_name <- edge$to  # default fallback
-                                        if (nrow(target_node) > 0) {
-                                            if (!is.null(target_node$hgnc_symbol) && !is.na(target_node$hgnc_symbol) && target_node$hgnc_symbol != "") {
-                                                target_name <- target_node$hgnc_symbol
-                                            } else if (!is.null(target_node$label) && !is.na(target_node$label) && target_node$label != "") {
-                                                target_name <- target_node$label
-                                            }
-                                        }
-                                        
-                                        relationship_info <- paste0(relationship_info, 
-                                            "→ ", target_name, " (", rel_type, 
-                                            if (subtype != "") paste0(": ", subtype) else "", ")", "<br>")
-                                    }
-                                }
-                            }
-                            
-                            # Create comprehensive single gene display
-                            html_content <- paste0(
-                                "<div style='font-family: monospace; font-size: 14px; line-height: 1.6;'>",
-                                "<strong>=== GENE NODE ===</strong><br>",
-                                "<strong>Node Type:</strong> Single gene<br>",
-                                "<strong>Display Label:</strong> ", display_label, "<br>",
-                                "<strong>KEGG Entry:</strong> <code>", gene_name, "</code><br>",
-                                phylo_info,
-                                
-                                "<br><strong>=== GENE INFORMATION ===</strong><br>",
-                                gene_info_result$html,
-                                
-                                if (gene_info_result$uniprot_html != "") paste0("<br><strong>=== 3D PROTEIN STRUCTURES ===</strong><br>", gene_info_result$uniprot_html) else "",
-                                
-                                emerald_section,
-                                relationship_info,
-                                
-                                "<br><strong>=== PATHWAY CONTEXT ===</strong><br>",
-                                "In KEGG, this gene is referenced as: <code>", gene_name, "</code><br>",
-                                if (!is.null(gene_symbol) && !is.na(gene_symbol) && gene_symbol != "") 
-                                    paste0("Common name/symbol: <code>", gene_symbol, "</code><br>") else "",
-                                "<br>",
-                                "<em>Tip: Search for '", gene_name, "' in KEGG database<br>",
-                                if (!is.null(gene_symbol) && !is.na(gene_symbol) && gene_symbol != "") 
-                                    paste0("or '", gene_symbol, "' in gene databases</em>") else "</em>",
-                                
-                                # Add JavaScript for EMERALD alignment functionality
-                                "<script>
-                                function selectSecondGeneSingle(secondGeneSymbol) {
-                                    if (!secondGeneSymbol) {
-                                        document.getElementById('emerald_link_container_single').innerHTML = '';
-                                        return;
-                                    }
-                                    
-                                    // Send the selected gene to Shiny
-                                    Shiny.setInputValue('second_gene_selected_single', secondGeneSymbol, {priority: 'event'});
-                                }
-                                </script>",
-                                
-                                "</div>"
-                            )
-                        }
-                        
-                        # Return as HTML
-                        HTML(html_content)
-                        
-                    } else if (node_type == "compound") {
-                        # ======= COMPOUND NODE HANDLING =======
-                        
-                        # Extract compound information from the selected node
-                        compound_names <- character(0)
-                        compound_ids <- character(0)
-                        
-                        # Try to get compound names from the enhanced node data
-                        if (!is.null(selected_node$description) && !is.na(selected_node$description)) {
-                        # Description contains "Compound: name1; name2; ..." format
-                        desc_parts <- strsplit(selected_node$description, "Compound: ")[[1]]
-                        if (length(desc_parts) > 1) {
-                            compound_names <- trimws(strsplit(desc_parts[2], ";")[[1]])
-                        }
-                    }
-                    
-                    # Extract compound IDs from gene_name (original KEGG entry)
-                    if (!is.null(gene_name) && !is.na(gene_name)) {
-                        compound_ids <- regmatches(gene_name, gregexpr("C\\d{5}", gene_name))[[1]]
-                    }
-                    
-                    # Build compound information section
-                    compound_info_section <- ""
-                    if (length(compound_names) > 0) {
-                        compound_info_section <- paste0(
-                            "<strong>Compound Names:</strong><br>",
-                            paste("• ", compound_names, collapse = "<br>"), "<br><br>"
-                        )
-                    }
-                    
-                    if (length(compound_ids) > 1) {
-                        compound_info_section <- paste0(compound_info_section,
-                            "<strong>Multiple Compounds:</strong><br>",
-                            paste("• ", compound_ids, collapse = "<br>"), "<br><br>"
-                        )
-                    }
-                    
-                    # Build relationship info
-                    relationship_info <- ""
-                    if (nrow(incoming_edges) > 0 || nrow(outgoing_edges) > 0) {
-                        relationship_info <- paste0(
-                            "<br><strong>=== RELATIONSHIPS ===</strong><br>",
-                            "Incoming connections: ", nrow(incoming_edges), "<br>",
-                            "Outgoing connections: ", nrow(outgoing_edges), "<br>"
-                        )
-                        
-                        # Show some specific relationships
-                        if (nrow(incoming_edges) > 0) {
-                            sample_incoming <- head(incoming_edges, 3)
-                            for (i in seq_len(nrow(sample_incoming))) {
-                                edge <- sample_incoming[i, ]
-                                rel_type <- if (!is.null(edge$relation_type) && !is.na(edge$relation_type)) edge$relation_type else "Unknown"
-                                subtype <- if (!is.null(edge$subtype) && !is.na(edge$subtype) && edge$subtype != "") edge$subtype else ""
-                                
-                                source_node <- values$nodes[values$nodes$id == edge$from, ]
-                                source_name <- edge$from
-                                if (nrow(source_node) > 0) {
-                                    if (!is.null(source_node$hgnc_symbol) && !is.na(source_node$hgnc_symbol) && source_node$hgnc_symbol != "") {
-                                        source_name <- source_node$hgnc_symbol
-                                    } else if (!is.null(source_node$label) && !is.na(source_node$label) && source_node$label != "") {
-                                        source_name <- source_node$label
-                                    }
-                                }
-                                
-                                relationship_info <- paste0(relationship_info, 
-                                    "← ", source_name, " (", rel_type, 
-                                    if (subtype != "") paste0(": ", subtype) else "", ")", "<br>")
-                            }
-                        }
-                        
-                        if (nrow(outgoing_edges) > 0) {
-                            sample_outgoing <- head(outgoing_edges, 3)
-                            for (i in seq_len(nrow(sample_outgoing))) {
-                                edge <- sample_outgoing[i, ]
-                                rel_type <- if (!is.null(edge$relation_type) && !is.na(edge$relation_type)) edge$relation_type else "Unknown"
-                                subtype <- if (!is.null(edge$subtype) && !is.na(edge$subtype) && edge$subtype != "") edge$subtype else ""
-                                
-                                target_node <- values$nodes[values$nodes$id == edge$to, ]
-                                target_name <- edge$to
-                                if (nrow(target_node) > 0) {
-                                    if (!is.null(target_node$hgnc_symbol) && !is.na(target_node$hgnc_symbol) && target_node$hgnc_symbol != "") {
-                                        target_name <- target_node$hgnc_symbol
-                                    } else if (!is.null(target_node$label) && !is.na(target_node$label) && target_node$label != "") {
-                                        target_name <- target_node$label
-                                    }
-                                }
-                                
-                                relationship_info <- paste0(relationship_info, 
-                                    "→ ", target_name, " (", rel_type, 
-                                    if (subtype != "") paste0(": ", subtype) else "", ")", "<br>")
-                            }
-                        }
-                    }
-                    
-                    # Create compound links section
-                    compound_links_section <- ""
-                    if (length(compound_ids) > 0) {
-                        compound_links_section <- paste0(
-                            "<br><strong>=== KEGG DATABASE LINKS ===</strong><br>",
-                            paste(sapply(compound_ids, function(cid) {
-                                paste0("<strong>", cid, ":</strong> ",
-                                      "<a href='https://www.kegg.jp/entry/", cid, "' target='_blank' style='color: #007bff; text-decoration: underline;'>",
-                                      "View in KEGG ↗</a>")
-                            }), collapse = "<br>"),
-                            "<br>"
-                        )
-                    } else if (!is.null(kegg_id) && kegg_id != "") {
-                        compound_links_section <- paste0(
-                            "<br><strong>=== KEGG DATABASE LINK ===</strong><br>",
-                            "<a href='https://www.kegg.jp/entry/", kegg_id, "' target='_blank' style='color: #007bff; text-decoration: underline;'>",
-                            "View ", kegg_id, " in KEGG ↗</a><br>"
-                        )
-                    }
-                    
-                    # Create compound HTML content
-                    html_content <- paste0(
-                        "<strong>=== COMPOUND INFORMATION ===</strong><br>",
-                        compound_info_section,
-                        "<strong>KEGG Compound ID:</strong> <code>", kegg_id, "</code><br>",
-                        "<strong>Original KEGG Entry:</strong> <code>", gene_name, "</code><br>",
-                        "<strong>Display Label:</strong> ", display_label, "<br>",
-                        relationship_info,
-                        compound_links_section,
-                        "<br><strong>=== PATHWAY CONTEXT ===</strong><br>",
-                        "This compound participates in pathway reactions.<br>",
-                        "<br>",
-                        "<em>Tip: Click the KEGG links above to view detailed compound information</em>"
-                    )
-                    
-                    # Return as HTML
-                    HTML(html_content)
-                    
+                if (nrow(selected_node) == 0) {
+                    return(HTML("<em>No node selected - click on a node to see detailed information</em>"))
+                }
+                
+                # Common data for all node types
+                node_id <- selected_node$id
+                node_type <- selected_node$type
+                display_label <- selected_node$label
+                gene_name <- selected_node$gene_name  # This is the original KEGG entry
+                kegg_id <- selected_node$kegg_id
+                
+                # Get edges (common for all node types)
+                incoming_edges <- values$edges[values$edges$to == node_id, ]
+                outgoing_edges <- values$edges[values$edges$from == node_id, ]
+                
+                # Route to appropriate handler based on node type
+                if (node_type == "gene") {
+                    html_content <- build_gene_node_info(selected_node, incoming_edges, outgoing_edges, values$nodes, comprehensive_mapping)
+                } else if (node_type == "compound") {
+                    html_content <- build_compound_node_info(selected_node, incoming_edges, outgoing_edges, values$nodes)
                 } else if (node_type == "map") {
-                    # ======= MAP NODE HANDLING =======
-                    
-                    # Extract pathway ID from the kegg_name field
-                    pathway_id <- ""
-                    if (!is.null(gene_name) && gene_name != "") {
-                        # Extract pathway ID (e.g., "path:hsa05200" -> "hsa05200")
-                        pathway_match <- regmatches(gene_name, regexpr("hsa\\d+", gene_name))
-                        if (length(pathway_match) > 0) {
-                            pathway_id <- pathway_match[1]
-                        }
-                    }
-                    
-                    # Build relationship info
-                    relationship_info <- ""
-                    if (nrow(incoming_edges) > 0 || nrow(outgoing_edges) > 0) {
-                        relationship_info <- paste0(
-                            "<br><strong>=== RELATIONSHIPS ===</strong><br>",
-                            "Incoming connections: ", nrow(incoming_edges), "<br>",
-                            "Outgoing connections: ", nrow(outgoing_edges), "<br>"
-                        )
-                    }
-                    
-                    # Create pathway link
-                    pathway_link <- ""
-                    if (pathway_id != "") {
-                        pathway_link <- paste0(
-                            "<br><strong>=== PATHWAY NAVIGATION ===</strong><br>",
-                            "<strong>KEGG Pathway Link:</strong> ",
-                            "<a href='https://www.kegg.jp/kegg-bin/show_pathway?", pathway_id, "' target='_blank' style='color: #007bff; text-decoration: underline;'>",
-                            "View in KEGG ↗</a><br>",
-                            "<strong>Load in Visualizer:</strong> ",
-                            "<button id='load_pathway_btn_", node_id, "' onclick='loadPathwayFromNode(\"", pathway_id, "\")' ",
-                            "style='background-color: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; margin-top: 5px;'>",
-                            "Load ", display_label, "</button><br>"
-                        )
-                    }
-                    
-                    # Create map HTML content
-                    html_content <- paste0(
-                        "<strong>=== PATHWAY MAP INFORMATION ===</strong><br>",
-                        if (pathway_id != "") paste0("<strong>Pathway ID:</strong> <code>", pathway_id, "</code><br>") else "",
-                        "<strong>Original KEGG Entry:</strong> <code>", gene_name, "</code><br>",
-                        "<strong>Display Label:</strong> ", display_label, "<br>",
-                        relationship_info,
-                        pathway_link,
-                        "<br><strong>=== PATHWAY CONTEXT ===</strong><br>",
-                        "This node represents a reference to another KEGG pathway.<br>",
-                        if (pathway_id != "") paste0("You can load the ", pathway_id, " pathway to explore it in detail.<br>") else "",
-                        "<br>",
-                        "<em>Tip: Click 'Load Pathway' button to navigate to the referenced pathway</em>",
-                        
-                        # Add JavaScript for pathway loading functionality
-                        "<script>
-                        function loadPathwayFromNode(pathwayId) {
-                            // Send the pathway ID to Shiny for loading
-                            Shiny.setInputValue('load_pathway_from_node', pathwayId, {priority: 'event'});
-                            
-                            // Show loading feedback
-                            document.getElementById('load_pathway_btn_", node_id, "').innerHTML = 'Loading...';
-                            document.getElementById('load_pathway_btn_", node_id, "').disabled = true;
-                        }
-                        </script>"
-                    )
-                    
-                    # Return as HTML
-                    HTML(html_content)
-                    
+                    html_content <- build_map_node_info(selected_node, incoming_edges, outgoing_edges, values$nodes)
                 } else {
-                    # ======= OTHER NODE TYPES =======
-                    
-                    # Build relationship info
-                    relationship_info <- ""
-                    if (nrow(incoming_edges) > 0 || nrow(outgoing_edges) > 0) {
-                        relationship_info <- paste0(
-                            "<br><strong>=== RELATIONSHIPS ===</strong><br>",
-                            "Incoming connections: ", nrow(incoming_edges), "<br>",
-                            "Outgoing connections: ", nrow(outgoing_edges), "<br>"
-                        )
-                    }
-                    
-                    # Create generic HTML content
-                    html_content <- paste0(
-                        "<strong>=== NODE INFORMATION ===</strong><br>",
-                        "<strong>KEGG ID:</strong> <code>", kegg_id, "</code><br>",
-                        "<strong>Original KEGG Entry:</strong> <code>", gene_name, "</code><br>",
-                        "<strong>Display Label:</strong> ", display_label, "<br>",
-                        relationship_info,
-                        "<br><strong>=== PATHWAY CONTEXT ===</strong><br>",
-                        "In KEGG, this node is referenced as: <code>", kegg_id, "</code><br>",
-                        "<br>",
-                        "<em>Tip: Search for '", kegg_id, "' in KEGG database</em>"
-                    )
-                    
-                    # Return as HTML
-                    HTML(html_content)
+                    html_content <- build_generic_node_info(selected_node, incoming_edges, outgoing_edges, values$nodes)
                 }
-                } else {
-                    HTML("<em>No node selected - click on a node to see detailed information</em>")
-                }
+                
+                HTML(html_content)
             })
         }
     })
@@ -2859,6 +2031,7 @@ server <- function(input, output, session) {
                         
                         if (is_consolidated) {
                             # CONSOLIDATED NODE: Get all gene symbols
+                            cat("DEBUG: Taking CONSOLIDATED gene node path\n")
                             all_selected_genes <- strsplit(selected_node$all_gene_symbols[1], ",")[[1]]
                             all_selected_genes <- trimws(all_selected_genes)  # Remove whitespace
                             
@@ -2880,11 +2053,27 @@ server <- function(input, output, session) {
                             all_interaction_colors <- interaction_data$interaction_colors[all_interacting_genes]
                             names(all_interaction_colors) <- all_interacting_genes
                             
-                            # Get all genes to plot (consolidated genes + their interactions)
-                            all_genes_to_plot <- c(all_selected_genes, all_interacting_genes)
+                            cat("DEBUG: Consolidated node - all_interacting_genes:", paste(all_interacting_genes, collapse = ", "), "\n")
+                            
+                            # Split consolidated interacting gene names into individual genes
+                            individual_interacting_genes <- character(0)
+                            if (length(all_interacting_genes) > 0) {
+                                for (gene_string in all_interacting_genes) {
+                                    # Split by semicolon and clean whitespace
+                                    genes <- trimws(strsplit(gene_string, ";")[[1]])
+                                    individual_interacting_genes <- c(individual_interacting_genes, genes)
+                                }
+                            }
+                            
+                            cat("DEBUG: individual_interacting_genes:", paste(individual_interacting_genes, collapse = ", "), "\n")
+                            
+                            # Get all genes to plot (consolidated genes + their individual interactions)
+                            all_genes_to_plot <- c(all_selected_genes, individual_interacting_genes)
                         } else {
                             # SINGLE GENE NODE: Use original logic
+                            cat("DEBUG: Taking SINGLE gene node path\n")
                             selected_gene <- selected_node$hgnc_symbol[1]
+                            cat("DEBUG: Selected gene:", selected_gene, "\n")
                             
                             if (!is.na(selected_gene) && selected_gene != "") {
                                 # Use the get_interacting_genes function to get proper colors
@@ -2897,6 +2086,8 @@ server <- function(input, output, session) {
                                 
                                 # Get all genes to plot (selected + interacting)
                                 all_genes_to_plot <- c(selected_gene, interaction_data$interacting_genes)
+                                cat("DEBUG: interaction_data$interacting_genes:", paste(interaction_data$interacting_genes, collapse = ", "), "\n")
+                                cat("DEBUG: all_genes_to_plot before filtering:", paste(all_genes_to_plot, collapse = ", "), "\n")
                             } else {
                                 all_genes_to_plot <- character(0)
                             }
@@ -2914,18 +2105,26 @@ server <- function(input, output, session) {
                                 
                                 # Set colors: selected genes in black, interacting with relationship colors
                                 selected_genes_in_plot <- intersect(all_selected_genes, all_genes_to_plot)
-                                interacting_genes_in_plot <- intersect(all_interacting_genes, all_genes_to_plot)
+                                interacting_genes_in_plot <- intersect(individual_interacting_genes, all_genes_to_plot)
                                 
                                 # Black for all selected genes (consistent with single gene behavior)
                                 gene_colors[selected_genes_in_plot] <- "#000000"
                                 
-                                # Use the collected interaction colors for interacting genes
+                                # Assign colors to individual interacting genes based on their consolidated parent
                                 if (length(interacting_genes_in_plot) > 0) {
-                                    for (gene in interacting_genes_in_plot) {
-                                        if (gene %in% names(all_interaction_colors)) {
-                                            gene_colors[gene] <- all_interaction_colors[gene]
-                                        } else {
-                                            gene_colors[gene] <- "#808080"  # Gray fallback
+                                    for (i in seq_along(all_interacting_genes)) {
+                                        consolidated_name <- all_interacting_genes[i]
+                                        individual_genes <- trimws(strsplit(consolidated_name, ";")[[1]])
+                                        
+                                        # Get color for this consolidated group
+                                        if (consolidated_name %in% names(all_interaction_colors)) {
+                                            group_color <- all_interaction_colors[consolidated_name]
+                                            # Assign same color to all genes in this group
+                                            for (gene in individual_genes) {
+                                                if (gene %in% names(gene_colors)) {
+                                                    gene_colors[gene] <- group_color
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -2933,12 +2132,51 @@ server <- function(input, output, session) {
                                 # Create plot title
                                 plot_title <- paste0("Expression Profiles: ", 
                                                    paste(selected_genes_in_plot, collapse = ", "), 
-                                                   if(length(interacting_genes_in_plot) > 0) 
-                                                       paste0(" + ", length(interacting_genes_in_plot), " connections") 
+                                                   if(length(individual_interacting_genes) > 0) 
+                                                       paste0(" + ", length(individual_interacting_genes), " connections") 
                                                    else "")
                             } else {
                                 # Single gene node - use original interaction colors
-                                gene_colors <- interaction_data$interaction_colors
+                                selected_gene <- selected_node$hgnc_symbol[1]
+                                
+                                # Split consolidated gene names from interacting nodes
+                                individual_interacting_genes <- character(0)
+                                if (length(interaction_data$interacting_genes) > 0) {
+                                    for (gene_string in interaction_data$interacting_genes) {
+                                        # Split by semicolon and clean whitespace
+                                        genes <- trimws(strsplit(gene_string, ";")[[1]])
+                                        individual_interacting_genes <- c(individual_interacting_genes, genes)
+                                    }
+                                }
+                                
+                                # Get all genes to plot (selected + individual interacting genes)
+                                all_genes_to_plot <- c(selected_gene, individual_interacting_genes)
+                                cat("DEBUG: individual_interacting_genes:", paste(individual_interacting_genes, collapse = ", "), "\n")
+                                cat("DEBUG: all_genes_to_plot after splitting:", paste(all_genes_to_plot, collapse = ", "), "\n")
+                                
+                                # Create color mapping for individual genes
+                                gene_colors <- character(length(all_genes_to_plot))
+                                names(gene_colors) <- all_genes_to_plot
+                                
+                                # Selected gene gets black color
+                                gene_colors[selected_gene] <- "#000000"
+                                
+                                # Assign colors to interacting genes based on their consolidated parent
+                                for (i in seq_along(interaction_data$interacting_genes)) {
+                                    consolidated_name <- interaction_data$interacting_genes[i]
+                                    individual_genes <- trimws(strsplit(consolidated_name, ";")[[1]])
+                                    
+                                    # Get color for this consolidated group
+                                    if (consolidated_name %in% names(interaction_data$interaction_colors)) {
+                                        group_color <- interaction_data$interaction_colors[consolidated_name]
+                                        # Assign same color to all genes in this group
+                                        for (gene in individual_genes) {
+                                            if (gene %in% names(gene_colors)) {
+                                                gene_colors[gene] <- group_color
+                                            }
+                                        }
+                                    }
+                                }
                                 
                                 # Filter colors to only genes present in phyloset
                                 gene_colors <- gene_colors[names(gene_colors) %in% all_genes_to_plot]
