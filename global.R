@@ -67,6 +67,25 @@ source("R/network_utils.R")
 source("R/enrichment_utils.R")
 source("R/evolutionary_utils.R")
 source("R/node_info_utils.R")
+source("R/cache_manager.R")
+
+# Initialize enhanced caching system
+if (init_shared_cache()) {
+    cat("✅ Enhanced caching system initialized successfully\n")
+    
+    # Warm cache with popular pathways (run in background on server start)
+    if (Sys.getenv("WARM_CACHE_ON_START", "TRUE") == "TRUE") {
+        cat("🔥 Starting cache warming process...\n")
+        warm_pathway_cache()
+    }
+    
+    # Clean old cache files
+    if (Sys.getenv("CLEAN_OLD_CACHE", "TRUE") == "TRUE") {
+        clean_old_cache()
+    }
+} else {
+    cat("⚠️ Warning: Enhanced caching system failed to initialize\n")
+}
 
 # Pre-compute global phylostratum color palette for consistency
 # This ensures phylostratum 1 is always black regardless of how many strata are present

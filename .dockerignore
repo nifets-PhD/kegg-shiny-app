@@ -1,0 +1,59 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+*.md
+docs/
+
+# Development files
+.vscode/
+.idea/
+.Rproj.user/
+*.Rproj
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+
+# R temporary files
+.Rhistory
+.RData
+.Ruserdata
+
+# Node modules (if any)
+node_modules/
+
+# Python cache (if any)
+__pycache__/
+*.pyc
+
+# Development cache (keep the actual cache directories for the app)
+# but exclude any development caches
+.cache/
+
+# Test files
+*test*
+!test-deployment.sh
+
+# Backup files
+*.bak
+*.backup
+
+# Environment files
+.env
+.env.local
+
+# Deployment artifacts
+.do-app-spec.yml
