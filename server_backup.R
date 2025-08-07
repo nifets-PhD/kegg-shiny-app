@@ -1289,8 +1289,6 @@ server <- function(input, output, session) {
             
             output$node_info <- renderUI({
                 if (nrow(selected_node) > 0) {
-
-
                     # Find edges connected to this node
                     node_id <- selected_node$id
                     incoming_edges <- values$edges[values$edges$to == node_id, ]
@@ -1558,94 +1556,24 @@ server <- function(input, output, session) {
                             )
                             
                         } else {
-                            # ======= SINGLE GENE NODE (Treat as consolidated with count=1) =======
+                            # ======= SINGLE GENE NODE (Enhanced with comprehensive functionality) =======
                             
-                            # Set up single gene as if it were a consolidated node with 1 gene
-                            gene_count <- 1
-                            
-                            # Extract gene symbol from title
-                            extracted_symbol <- if ("title" %in% names(selected_node) && 
-                                                   !is.null(selected_node$title) && 
-                                                   !is.na(selected_node$title) && 
-                                                   selected_node$title != "") {
+                            # Extract HSA ID and gene symbol
+                            gene_symbol <- if ("title" %in% names(selected_node) && 
+                                               !is.null(selected_node$title) && 
+                                               !is.na(selected_node$title) && 
+                                               selected_node$title != "") {
+                                # Extract gene symbol from title like "Gene: LEP\nHSA ID: 3952"
                                 title_text <- trimws(selected_node$title)
                                 if (grepl("^Gene: ", title_text)) {
-                                    gene_part <- strsplit(title_text, "\n")[[1]][1]
-                                    gsub("^Gene: ", "", gene_part)
+                                    # Extract just the gene symbol part
+                                    gene_part <- strsplit(title_text, "\n")[[1]][1]  # Get first line
+                                    gsub("^Gene: ", "", gene_part)  # Remove "Gene: " prefix
                                 } else {
                                     title_text
                                 }
                             } else if (!is.null(gene_name) && !is.na(gene_name) && 
                                        grepl("^hsa:", gene_name)) {
-                                entrez_id <- sub("^hsa:", "", gene_name)
-                                if (!is.null(comprehensive_mapping) && entrez_id %in% comprehensive_mapping$entrezgene_id) {
-                                    match_idx <- which(comprehensive_mapping$entrezgene_id == entrez_id)[1]
-                                    comprehensive_mapping$hgnc_symbol[match_idx]
-                                } else {
-                                    entrez_id
-                                }
-                            } else {
-                                gene_name
-                            }
-                            
-                            # Set up as arrays (like consolidated nodes)
-                            all_hsa_ids <- c(gene_name)
-                            all_gene_symbols <- c(extracted_symbol)
-                            
-                            # Now use the exact same logic as consolidated nodes from here...
-                            
-                            # Get pathway genes with UniProt IDs for EMERALD comparison  
-                            pathway_genes_with_uniprot <- get_pathway_genes_with_uniprot(selected_node$id)
-                            
-                            # Process each individual gene with enhanced information (single gene case)
-                            genes_info_html <- ""
-                            for (i in seq_along(all_gene_symbols)) {
-                                symbol <- trimws(all_gene_symbols[i])
-                                hsa_id <- if (i <= length(all_hsa_ids)) trimws(all_hsa_ids[i]) else ""
-                                
-                                # Get info for this specific gene with EMERALD options
-                                gene_info_result <- get_gene_info_for_consolidated(symbol, hsa_id, comprehensive_mapping, pathway_genes_with_uniprot, selected_node)
-                                genes_info_html <- paste0(genes_info_html, 
-                                    "<div style='margin-bottom: 15px; border-left: 3px solid #007cba; padding-left: 10px; background-color: #f8f9fa;'>",
-                                    gene_info_result$html,
-                                    "</div>"
-                                )
-                            }
-                            
-                            # Build relationship information
-                            relationship_info <- build_relationship_info(incoming_edges, outgoing_edges)
-                            
-                            # Create final HTML content
-                            html_content <- paste0(
-                                "<div style='font-family: monospace; font-size: 14px; line-height: 1.6;'>",
-                                "<strong>=== GENE NODE ===</strong><br>",
-                                "<strong>Node Type:</strong> Single gene<br>",
-                                "<strong>Display Label:</strong> ", display_label, "<br>",
-                                "<strong>Gene Count:</strong> ", gene_count, "<br>",
-                                "<strong>Gene Symbol(s):</strong> ", paste(all_gene_symbols, collapse=", "), "<br>",
-                                "<strong>KEGG Entry(s):</strong> <code>", paste(all_hsa_ids, collapse=", "), "</code><br>",
-                                
-                                "<br><strong>=== GENE INFORMATION ===</strong><br>",
-                                genes_info_html,
-                                
-                                relationship_info,
-                                
-                                "<br><strong>=== PATHWAY CONTEXT ===</strong><br>",
-                                "In KEGG, this gene is referenced as: <code>", paste(all_hsa_ids, collapse=", "), "</code><br>",
-                                "Common name/symbol: <code>", paste(all_gene_symbols, collapse=", "), "</code><br>",
-                                "<br>",
-                                "<em>Tip: Search for '", paste(all_hsa_ids, collapse="' or '"), "' in KEGG database<br>",
-                                "or '", paste(all_gene_symbols, collapse="' or '"), "' in gene databases</em>",
-                                
-                                "</div>"
-                            )
-                        }
-                        
-                        # Return as HTML
-                        HTML(html_content)
-                        
-                    } else if (node_type == "compound") {
-                        # ======= COMPOUND NODE HANDLING =======
                                 # If we have an HSA ID but no title, map it to a symbol
                                 entrez_id <- sub("^hsa:", "", gene_name)
                                 if (!is.null(comprehensive_mapping) && entrez_id %in% comprehensive_mapping$entrezgene_id) {

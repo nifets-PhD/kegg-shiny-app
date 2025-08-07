@@ -55,6 +55,13 @@ ui <- dashboardPage(
                         container.innerHTML = message.html;
                     }
                 });
+                
+                Shiny.addCustomMessageHandler('updateEmeraldContainer', function(data) {
+                    var container = document.getElementById(data.containerId);
+                    if (container) {
+                        container.innerHTML = data.html;
+                    }
+                });
             "))
         ),
         
