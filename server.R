@@ -797,6 +797,59 @@ server <- function(input, output, session) {
         })
     })
     
+    # Load pathway from node selection (map nodes)
+    observeEvent(input$load_pathway_from_node, {
+        req(input$load_pathway_from_node)
+        
+        pathway_id <- input$load_pathway_from_node
+        
+        # Show progress notification
+        progress <- Progress$new()
+        progress$set(message = paste("Loading pathway", pathway_id, "from node"), value = 0.1)
+        on.exit(progress$close())
+        
+        showNotification(paste("Loading pathway from node:", pathway_id), type = "message")
+        
+        # Create a fake pathway entry for the selected pathway
+        # We need to have the pathway in the pathways list to load it properly
+        # For now, we'll create a minimal entry
+        fake_pathway_entry <- data.frame(
+            pathway_id = pathway_id,
+            pathway_name = paste("Pathway", pathway_id),
+            description = paste("Loaded from map node -", pathway_id),
+            stringsAsFactors = FALSE
+        )
+        
+        values$selected_pathway <- fake_pathway_entry
+        progress$set(value = 0.3)
+        
+        # Load pathway graph with HSA gene data
+        tryCatch({
+            progress$set(message = "Parsing pathway data...", value = 0.5)
+            pathway_data <- parse_kegg_pathway_with_hsa(pathway_id, use_cached = TRUE)
+            
+            progress$set(message = "Building network...", value = 0.7)
+            values$pathway_graph <- pathway_data$kegg_data
+            values$nodes <- pathway_data$nodes
+            values$edges <- pathway_data$edges
+            
+            progress$set(message = "Finalizing...", value = 0.9)
+            
+            showNotification(
+                paste("Pathway", pathway_id, "loaded successfully with", nrow(pathway_data$nodes), "network nodes!"), 
+                type = "message"
+            )
+            
+            progress$set(value = 1.0)
+            
+            # Switch to network tab to show the loaded pathway
+            updateTabItems(session, "tabs", "network")
+            
+        }, error = function(e) {
+            showNotification(paste("Error loading pathway from node:", e$message), type = "warning")
+        })
+    })
+    
     # Display pathway information
     output$pathway_info <- renderUI({
         if (!is.null(values$selected_pathway)) {
@@ -964,20 +1017,32 @@ server <- function(input, output, session) {
                     incoming_edges <- values$edges[values$edges$to == node_id, ]
                     outgoing_edges <- values$edges[values$edges$from == node_id, ]
                     
-                    # Get comprehensive gene ID information
+                    # DEBUG: Check what types are available in values$nodes
+                    cat("DEBUG: All node types in values$nodes:\n")
+                    print(table(values$nodes$type, useNA = "always"))
+                    cat("DEBUG: Selected node ID:", input$pathway_network_selected, "\n")
+                    cat("DEBUG: Selected node data:\n")
+                    print(selected_node)
+                    
+                    # Get basic node information
                     hgnc_symbol <- selected_node$hgnc_symbol
                     kegg_id <- selected_node$kegg_id
                     gene_name <- selected_node$gene_name
                     display_label <- selected_node$label
                     node_type <- selected_node$type
+                    cat("DEBUG: Extracted node_type:", node_type, "\n")
+                    print(node_type)
                     
-                    # Initialize comprehensive gene ID info
-                    gene_id_info <- ""
-                    uniprot_info <- NULL
-                    uniprot_link <- ""
-                    
-                    # Get comprehensive mapping data for this gene
-                    if (!is.null(hgnc_symbol) && length(hgnc_symbol) > 0 && !is.na(hgnc_symbol) && hgnc_symbol != "") {
+                    # Handle different node types
+                    if (node_type == "gene") {
+                        # ======= GENE NODE HANDLING =======
+                        # Initialize comprehensive gene ID info
+                        gene_id_info <- ""
+                        uniprot_info <- NULL
+                        uniprot_link <- ""
+                        
+                        # Get comprehensive mapping data for this gene
+                        if (!is.null(hgnc_symbol) && length(hgnc_symbol) > 0 && !is.na(hgnc_symbol) && hgnc_symbol != "") {
                         tryCatch({
                             # Try to get comprehensive mapping from the loaded data
                             if (!is.null(comprehensive_mapping)) {
@@ -1233,8 +1298,183 @@ server <- function(input, output, session) {
                     
                     # Return as HTML
                     HTML(html_content)
+                    
+                } else if (node_type == "compound") {
+                    # ======= COMPOUND NODE HANDLING =======
+                    
+                    # Build relationship info
+                    relationship_info <- ""
+                    if (nrow(incoming_edges) > 0 || nrow(outgoing_edges) > 0) {
+                        relationship_info <- paste0(
+                            "<br><strong>=== RELATIONSHIPS ===</strong><br>",
+                            "Incoming connections: ", nrow(incoming_edges), "<br>",
+                            "Outgoing connections: ", nrow(outgoing_edges), "<br>"
+                        )
+                        
+                        # Show some specific relationships
+                        if (nrow(incoming_edges) > 0) {
+                            sample_incoming <- head(incoming_edges, 3)
+                            for (i in seq_len(nrow(sample_incoming))) {
+                                edge <- sample_incoming[i, ]
+                                rel_type <- if (!is.null(edge$relation_type) && !is.na(edge$relation_type)) edge$relation_type else "Unknown"
+                                subtype <- if (!is.null(edge$subtype) && !is.na(edge$subtype) && edge$subtype != "") edge$subtype else ""
+                                
+                                source_node <- values$nodes[values$nodes$id == edge$from, ]
+                                source_name <- edge$from
+                                if (nrow(source_node) > 0) {
+                                    if (!is.null(source_node$hgnc_symbol) && !is.na(source_node$hgnc_symbol) && source_node$hgnc_symbol != "") {
+                                        source_name <- source_node$hgnc_symbol
+                                    } else if (!is.null(source_node$label) && !is.na(source_node$label) && source_node$label != "") {
+                                        source_name <- source_node$label
+                                    }
+                                }
+                                
+                                relationship_info <- paste0(relationship_info, 
+                                    "← ", source_name, " (", rel_type, 
+                                    if (subtype != "") paste0(": ", subtype) else "", ")", "<br>")
+                            }
+                        }
+                        
+                        if (nrow(outgoing_edges) > 0) {
+                            sample_outgoing <- head(outgoing_edges, 3)
+                            for (i in seq_len(nrow(sample_outgoing))) {
+                                edge <- sample_outgoing[i, ]
+                                rel_type <- if (!is.null(edge$relation_type) && !is.na(edge$relation_type)) edge$relation_type else "Unknown"
+                                subtype <- if (!is.null(edge$subtype) && !is.na(edge$subtype) && edge$subtype != "") edge$subtype else ""
+                                
+                                target_node <- values$nodes[values$nodes$id == edge$to, ]
+                                target_name <- edge$to
+                                if (nrow(target_node) > 0) {
+                                    if (!is.null(target_node$hgnc_symbol) && !is.na(target_node$hgnc_symbol) && target_node$hgnc_symbol != "") {
+                                        target_name <- target_node$hgnc_symbol
+                                    } else if (!is.null(target_node$label) && !is.na(target_node$label) && target_node$label != "") {
+                                        target_name <- target_node$label
+                                    }
+                                }
+                                
+                                relationship_info <- paste0(relationship_info, 
+                                    "→ ", target_name, " (", rel_type, 
+                                    if (subtype != "") paste0(": ", subtype) else "", ")", "<br>")
+                            }
+                        }
+                    }
+                    
+                    # Create compound HTML content
+                    html_content <- paste0(
+                        "<strong>=== COMPOUND INFORMATION ===</strong><br>",
+                        "<strong>Node Type:</strong> ", node_type, "<br>",
+                        "<strong>KEGG Compound ID:</strong> <code>", kegg_id, "</code><br>",
+                        "<strong>Original KEGG Entry:</strong> <code>", gene_name, "</code><br>",
+                        "<strong>Display Label:</strong> ", display_label, "<br>",
+                        relationship_info,
+                        "<br><strong>=== PATHWAY CONTEXT ===</strong><br>",
+                        "In KEGG, this compound is referenced as: <code>", kegg_id, "</code><br>",
+                        "<br>",
+                        "<em>Tip: Search for '", kegg_id, "' in KEGG COMPOUND database</em>"
+                    )
+                    
+                    # Return as HTML
+                    HTML(html_content)
+                    
+                } else if (node_type == "map") {
+                    # ======= MAP NODE HANDLING =======
+                    
+                    # Extract pathway ID from the kegg_name field
+                    pathway_id <- ""
+                    if (!is.null(gene_name) && gene_name != "") {
+                        # Extract pathway ID (e.g., "path:hsa05200" -> "hsa05200")
+                        pathway_match <- regmatches(gene_name, regexpr("hsa\\d+", gene_name))
+                        if (length(pathway_match) > 0) {
+                            pathway_id <- pathway_match[1]
+                        }
+                    }
+                    
+                    # Build relationship info
+                    relationship_info <- ""
+                    if (nrow(incoming_edges) > 0 || nrow(outgoing_edges) > 0) {
+                        relationship_info <- paste0(
+                            "<br><strong>=== RELATIONSHIPS ===</strong><br>",
+                            "Incoming connections: ", nrow(incoming_edges), "<br>",
+                            "Outgoing connections: ", nrow(outgoing_edges), "<br>"
+                        )
+                    }
+                    
+                    # Create pathway link
+                    pathway_link <- ""
+                    if (pathway_id != "") {
+                        pathway_link <- paste0(
+                            "<br><strong>=== PATHWAY NAVIGATION ===</strong><br>",
+                            "<strong>KEGG Pathway Link:</strong> ",
+                            "<a href='https://www.kegg.jp/kegg-bin/show_pathway?", pathway_id, "' target='_blank' style='color: #007bff; text-decoration: underline;'>",
+                            "View in KEGG ↗</a><br>",
+                            "<strong>Load in Visualizer:</strong> ",
+                            "<button id='load_pathway_btn_", node_id, "' onclick='loadPathwayFromNode(\"", pathway_id, "\")' ",
+                            "style='background-color: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; margin-top: 5px;'>",
+                            "Load ", display_label, "</button><br>"
+                        )
+                    }
+                    
+                    # Create map HTML content
+                    html_content <- paste0(
+                        "<strong>=== PATHWAY MAP INFORMATION ===</strong><br>",
+                        if (pathway_id != "") paste0("<strong>Pathway ID:</strong> <code>", pathway_id, "</code><br>") else "",
+                        "<strong>Original KEGG Entry:</strong> <code>", gene_name, "</code><br>",
+                        "<strong>Display Label:</strong> ", display_label, "<br>",
+                        relationship_info,
+                        pathway_link,
+                        "<br><strong>=== PATHWAY CONTEXT ===</strong><br>",
+                        "This node represents a reference to another KEGG pathway.<br>",
+                        if (pathway_id != "") paste0("You can load the ", pathway_id, " pathway to explore it in detail.<br>") else "",
+                        "<br>",
+                        "<em>Tip: Click 'Load Pathway' button to navigate to the referenced pathway</em>",
+                        
+                        # Add JavaScript for pathway loading functionality
+                        "<script>
+                        function loadPathwayFromNode(pathwayId) {
+                            // Send the pathway ID to Shiny for loading
+                            Shiny.setInputValue('load_pathway_from_node', pathwayId, {priority: 'event'});
+                            
+                            // Show loading feedback
+                            document.getElementById('load_pathway_btn_", node_id, "').innerHTML = 'Loading...';
+                            document.getElementById('load_pathway_btn_", node_id, "').disabled = true;
+                        }
+                        </script>"
+                    )
+                    
+                    # Return as HTML
+                    HTML(html_content)
+                    
                 } else {
-                    HTML("<em>No node selected - click on a node to see detailed gene information</em>")
+                    # ======= OTHER NODE TYPES =======
+                    
+                    # Build relationship info
+                    relationship_info <- ""
+                    if (nrow(incoming_edges) > 0 || nrow(outgoing_edges) > 0) {
+                        relationship_info <- paste0(
+                            "<br><strong>=== RELATIONSHIPS ===</strong><br>",
+                            "Incoming connections: ", nrow(incoming_edges), "<br>",
+                            "Outgoing connections: ", nrow(outgoing_edges), "<br>"
+                        )
+                    }
+                    
+                    # Create generic HTML content
+                    html_content <- paste0(
+                        "<strong>=== NODE INFORMATION ===</strong><br>",
+                        "<strong>KEGG ID:</strong> <code>", kegg_id, "</code><br>",
+                        "<strong>Original KEGG Entry:</strong> <code>", gene_name, "</code><br>",
+                        "<strong>Display Label:</strong> ", display_label, "<br>",
+                        relationship_info,
+                        "<br><strong>=== PATHWAY CONTEXT ===</strong><br>",
+                        "In KEGG, this node is referenced as: <code>", kegg_id, "</code><br>",
+                        "<br>",
+                        "<em>Tip: Search for '", kegg_id, "' in KEGG database</em>"
+                    )
+                    
+                    # Return as HTML
+                    HTML(html_content)
+                }
+                } else {
+                    HTML("<em>No node selected - click on a node to see detailed information</em>")
                 }
             })
         }
@@ -1871,89 +2111,95 @@ server <- function(input, output, session) {
             
             # Determine what genes and colors to use based on selection and coloring mode
             if (!is.null(selected_node_id) && length(selected_node_id) > 0 && selected_node_id != "") {
-                # NODE SELECTED: Show selected node + connections
+                # NODE SELECTED: Check node type first
                 selected_node <- values$nodes[values$nodes$id == selected_node_id, ]
                 
                 if (nrow(selected_node) > 0) {
-                    # Get selected gene
-                    selected_gene <- selected_node$hgnc_symbol[1]
+                    # Check if this is a gene node (only gene nodes show interactions)
+                    node_type <- selected_node$type[1]
                     
-                    if (!is.na(selected_gene) && selected_gene != "") {
-                        # Use the get_interacting_genes function to get proper colors
-                        interaction_data <- get_interacting_genes(
-                            selected_gene = selected_gene,
-                            pathway_edges = values$edges,
-                            pathway_nodes = values$nodes,
-                            gene_id_type = "symbol"
-                        )
+                    if (!is.na(node_type) && node_type == "gene") {
+                        # GENE NODE: Show selected gene + connections
+                        selected_gene <- selected_node$hgnc_symbol[1]
                         
-                        # Get all genes to plot (selected + interacting)
-                        all_genes_to_plot <- c(selected_gene, interaction_data$interacting_genes)
-                        
-                        # Filter to genes present in phyloset
-                        all_genes_to_plot <- intersect(all_genes_to_plot, phyloset_genes)
-                        
-                        if (length(all_genes_to_plot) > 0) {
-                            # Use the interaction colors from get_interacting_genes
-                            gene_colors <- interaction_data$interaction_colors
+                        if (!is.na(selected_gene) && selected_gene != "") {
+                            # Use the get_interacting_genes function to get proper colors
+                            interaction_data <- get_interacting_genes(
+                                selected_gene = selected_gene,
+                                pathway_edges = values$edges,
+                                pathway_nodes = values$nodes,
+                                gene_id_type = "symbol"
+                            )
                             
-                            # Filter colors to only genes present in phyloset
-                            gene_colors <- gene_colors[names(gene_colors) %in% all_genes_to_plot]
+                            # Get all genes to plot (selected + interacting)
+                            all_genes_to_plot <- c(selected_gene, interaction_data$interacting_genes)
                             
-                            # Additional validation
-                            if (any(is.na(names(gene_colors))) || any(names(gene_colors) == "")) {
-                                valid_color_indices <- !is.na(names(gene_colors)) & names(gene_colors) != ""
-                                gene_colors <- gene_colors[valid_color_indices]
+                            # Filter to genes present in phyloset
+                            all_genes_to_plot <- intersect(all_genes_to_plot, phyloset_genes)
+                            
+                            if (length(all_genes_to_plot) > 0) {
+                                # Use the interaction colors from get_interacting_genes
+                                gene_colors <- interaction_data$interaction_colors
+                                
+                                # Filter colors to only genes present in phyloset
+                                gene_colors <- gene_colors[names(gene_colors) %in% all_genes_to_plot]
+                                
+                                # Additional validation
+                                if (any(is.na(names(gene_colors))) || any(names(gene_colors) == "")) {
+                                    valid_color_indices <- !is.na(names(gene_colors)) & names(gene_colors) != ""
+                                    gene_colors <- gene_colors[valid_color_indices]
+                                }
+                                
+                                # Create the plot
+                                p <- create_gene_profiles_plot(phyloset,
+                                                             selected_genes = all_genes_to_plot,
+                                                             interaction_colors = gene_colors,
+                                                             title = paste0("Expression Profiles: ", selected_gene, " + ", 
+                                                                           length(interaction_data$interacting_genes), " connections"))
+                                return(p)
                             }
-                            
-                            # Create the plot
-                            p <- create_gene_profiles_plot(phyloset,
-                                                         selected_genes = all_genes_to_plot,
-                                                         interaction_colors = gene_colors,
-                                                         title = paste0("Expression Profiles: ", selected_gene, " + ", 
-                                                                       length(interaction_data$interacting_genes), " connections"))
-                            return(p)
                         }
                     }
+                    # For compound or map nodes, fall through to show all pathway genes (same as no selection)
                 }
-            } else {
-                # NO NODE SELECTED: Show profiles of all pathway genes
+            }
+            
+            # NO NODE SELECTED OR NON-GENE NODE SELECTED: Show profiles of all pathway genes
                 
-                if (coloring_mode == "kegg_default") {
-                    # KEGG Default: Show gene heatmap instead of profiles
-                    p <- create_gene_heatmap_plot(phyloset,
-                                                selected_genes = valid_pathway_genes,
-                                                title = paste0("Gene Expression Heatmap (", length(valid_pathway_genes), " pathway genes)"))
-                    return(p)
-                    
-                } else if (coloring_mode == "highlight_genes") {
-                    # Highlight uploaded genes: red for uploaded, green for others
-                    uploaded_genes <- internal_genes()  # Get uploaded Entrez IDs
-                    uploaded_symbols <- entrez_to_symbols(uploaded_genes, comprehensive_mapping)
-                    
-                    gene_colors <- rep("green3", length(valid_pathway_genes))
-                    names(gene_colors) <- valid_pathway_genes
-                    
-                    # Color uploaded genes red
-                    uploaded_in_pathway <- intersect(uploaded_symbols, valid_pathway_genes)
-                    if (length(uploaded_in_pathway) > 0) {
-                        gene_colors[uploaded_in_pathway] <- "red"
-                    }
-                    
-                    p <- create_gene_profiles_plot(phyloset,
-                                                 selected_genes = valid_pathway_genes,
-                                                 interaction_colors = gene_colors,
-                                                 title = paste0("Expression Profiles (", length(uploaded_in_pathway), " highlighted, ", 
-                                                               length(valid_pathway_genes) - length(uploaded_in_pathway), " others)"))
-                    return(p)
-                    
-                } else {
-                    # Phylostratum: Show gene heatmap colored by phylostratum
-                    p <- create_gene_heatmap_plot(phyloset,
-                                                selected_genes = valid_pathway_genes,
-                                                title = paste0("Gene Expression Heatmap (", length(valid_pathway_genes), " pathway genes)"))
-                    return(p)
+            if (coloring_mode == "kegg_default") {
+                # KEGG Default: Show gene heatmap instead of profiles
+                p <- create_gene_heatmap_plot(phyloset,
+                                            selected_genes = valid_pathway_genes,
+                                            title = paste0("Gene Expression Heatmap (", length(valid_pathway_genes), " pathway genes)"))
+                return(p)
+                
+            } else if (coloring_mode == "highlight_genes") {
+                # Highlight uploaded genes: red for uploaded, green for others
+                uploaded_genes <- internal_genes()  # Get uploaded Entrez IDs
+                uploaded_symbols <- entrez_to_symbols(uploaded_genes, comprehensive_mapping)
+                
+                gene_colors <- rep("green3", length(valid_pathway_genes))
+                names(gene_colors) <- valid_pathway_genes
+                
+                # Color uploaded genes red
+                uploaded_in_pathway <- intersect(uploaded_symbols, valid_pathway_genes)
+                if (length(uploaded_in_pathway) > 0) {
+                    gene_colors[uploaded_in_pathway] <- "red"
                 }
+                
+                p <- create_gene_profiles_plot(phyloset,
+                                                selected_genes = valid_pathway_genes,
+                                                interaction_colors = gene_colors,
+                                                title = paste0("Expression Profiles (", length(uploaded_in_pathway), " highlighted, ", 
+                                                            length(valid_pathway_genes) - length(uploaded_in_pathway), " others)"))
+                return(p)
+                
+            } else {
+                # Phylostratum: Show gene heatmap colored by phylostratum
+                p <- create_gene_heatmap_plot(phyloset,
+                                            selected_genes = valid_pathway_genes,
+                                            title = paste0("Gene Expression Heatmap (", length(valid_pathway_genes), " pathway genes)"))
+                return(p)
             }
             
             # Fallback

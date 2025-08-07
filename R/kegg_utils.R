@@ -928,7 +928,7 @@ create_kegg_network_visualization <- function(nodes, edges, show_labels = TRUE, 
             highlightNearest = list(enabled = TRUE, hover = TRUE, degree = 1),
             nodesIdSelection = list(
                 enabled = TRUE,
-                values = vis_nodes$id[nodes$type == "gene" | is.na(nodes$type)]
+                values = vis_nodes$id  # Allow selection of all node types
             )
         ) %>%
         visEvents(select = "function(nodes) {
@@ -1056,6 +1056,22 @@ prepare_kegg_nodes <- function(nodes, show_labels = TRUE, highlight_genes = NULL
             if (is.null(nodes$font.color) || is.na(nodes$font.color[i])) {
                 vis_nodes$font[[i]]$color <- nodes$kegg_fgcolor[i]
                 vis_nodes$font[[i]]$size <- 10  # Smaller size for KEGG foreground color
+            }
+        }
+    }
+    
+    # Apply node type-specific styling
+    if (!is.null(nodes$type)) {
+        for (i in seq_len(nrow(vis_nodes))) {
+            node_type <- nodes$type[i]
+            
+            # Style map nodes purple with white text
+            if (!is.na(node_type) && node_type == "map") {
+                # Only apply if no phylostratum color is already set
+                if (is.null(nodes$color.background) || is.na(nodes$color.background[i])) {
+                    vis_nodes$color[i] <- "#8B5CF6"  # Purple color
+                }
+                vis_nodes$font[[i]]$color <- "#FFFFFF"  # White text
             }
         }
     }

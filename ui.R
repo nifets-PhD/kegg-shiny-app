@@ -420,9 +420,9 @@ ui <- dashboardPage(
                             )
                         ),
                         
-                        # Selected Gene Information
+                        # Selected Node Information
                         box(
-                            title = "Selected Gene Information", status = "info", solidHeader = TRUE,
+                            title = "Selected Node Information", status = "info", solidHeader = TRUE,
                             width = 12, collapsible = TRUE,
                             
                             htmlOutput("node_info")
