@@ -659,8 +659,35 @@ load_kegg_pathway <- function(pathway_id) {
                 kegg_fgcolor = kegg_coords$fgcolor,
                 kegg_type = kegg_coords$entry_type,
                 kegg_label = kegg_coords$label,
+                title = character(nrow(kegg_coords)),  # Initialize tooltip column
                 stringsAsFactors = FALSE
             )
+            
+            # Set basic tooltips for all nodes
+            for (i in seq_len(nrow(nodes_data))) {
+                if (nodes_data$type[i] == "gene") {
+                    nodes_data$title[i] <- paste0(
+                        "Gene: ", nodes_data$label[i], "\n",
+                        "KEGG ID: ", nodes_data$kegg_id[i], "\n",
+                        "Entry: ", nodes_data$gene_name[i]
+                    )
+                } else if (nodes_data$type[i] == "map") {
+                    nodes_data$title[i] <- paste0(
+                        "Pathway: ", nodes_data$label[i], "\n",
+                        "KEGG ID: ", nodes_data$kegg_id[i]
+                    )
+                } else if (nodes_data$type[i] == "group") {
+                    nodes_data$title[i] <- paste0(
+                        "Group: ", nodes_data$label[i], "\n",
+                        "Contains multiple pathway elements"
+                    )
+                } else {
+                    nodes_data$title[i] <- paste0(
+                        "Node: ", nodes_data$label[i], "\n",
+                        "Type: ", nodes_data$type[i]
+                    )
+                }
+            }
             
             # For genes, we already have the correct gene symbols from XML graphics names
             # Skip HGNC conversion since we have better data directly from KEGG
@@ -830,6 +857,7 @@ extract_nodes_from_graph <- function(graph) {
             hgnc_symbol = character(0),
             kegg_id = character(0),
             description = character(0),
+            title = character(0),  # Add title column for tooltips
             stringsAsFactors = FALSE
         ))
     }
@@ -845,6 +873,7 @@ extract_nodes_from_graph <- function(graph) {
         hgnc_symbol = node_names,
         kegg_id = node_names,
         description = "KEGG gene",
+        title = paste0("Gene: ", node_names, "\nKEGG ID: ", node_names),  # Basic tooltip
         stringsAsFactors = FALSE
     )
     
@@ -917,6 +946,9 @@ extract_nodes_from_graph <- function(graph) {
                     }
                     
                     nodes_df$description[i] <- paste("Compound:", paste(compound_info$all_names, collapse = ", "))
+                    
+                    # Update tooltip with compound information
+                    nodes_df$title[i] <- compound_info$tooltip
                     
                     # Set kegg_id to the first compound ID for reference
                     nodes_df$kegg_id[i] <- compound_ids[1]
@@ -1050,7 +1082,7 @@ create_kegg_network_visualization <- function(nodes, edges, show_labels = TRUE, 
             highlightNearest = list(enabled = TRUE, hover = TRUE, degree = 1),
             nodesIdSelection = list(
                 enabled = TRUE,
-                values = vis_nodes$id  # Allow selection of all node types
+                values = vis_nodes$id[is.null(nodes$type) | nodes$type != "group"]  # Exclude group nodes from selection
             )
         ) %>%
         visEvents(select = "function(nodes) {
@@ -1108,11 +1140,6 @@ prepare_kegg_nodes <- function(nodes, show_labels = TRUE, highlight_genes = NULL
         title = character(nrow(nodes)),  # Initialize title column for tooltips
         stringsAsFactors = FALSE
     )
-    
-    # Hide group nodes
-    if (!is.null(nodes$type)) {
-        vis_nodes$hidden[nodes$type == "group"] <- TRUE
-    }
     
     # Initialize font as a list column - each row gets a named list
     vis_nodes$font <- replicate(nrow(vis_nodes), list(color = "#000000", size = 11, face = "arial"), simplify = FALSE)
@@ -1204,6 +1231,16 @@ prepare_kegg_nodes <- function(nodes, show_labels = TRUE, highlight_genes = NULL
                 
                 # Use smaller font for compound labels
                 vis_nodes$font[[i]]$size <- 10
+            }
+            
+            # Style group nodes: very small and less prominent
+            if (!is.na(node_type) && node_type == "group") {
+                vis_nodes$size[i] <- 3  # Very small size
+                vis_nodes$color[i] <- "#E0E0E0"  # Light gray color
+                vis_nodes$shape[i] <- "dot"  # Simple dot shape
+                vis_nodes$borderWidth[i] <- 0  # No border
+                vis_nodes$font[[i]]$size <- 6  # Very small font
+                vis_nodes$font[[i]]$color <- "#999999"  # Gray text
             }
         }
     }
