@@ -1017,12 +1017,6 @@ server <- function(input, output, session) {
                     incoming_edges <- values$edges[values$edges$to == node_id, ]
                     outgoing_edges <- values$edges[values$edges$from == node_id, ]
                     
-                    # DEBUG: Check what types are available in values$nodes
-                    cat("DEBUG: All node types in values$nodes:\n")
-                    print(table(values$nodes$type, useNA = "always"))
-                    cat("DEBUG: Selected node ID:", input$pathway_network_selected, "\n")
-                    cat("DEBUG: Selected node data:\n")
-                    print(selected_node)
                     
                     # Get basic node information
                     hgnc_symbol <- selected_node$hgnc_symbol
@@ -1030,8 +1024,6 @@ server <- function(input, output, session) {
                     gene_name <- selected_node$gene_name
                     display_label <- selected_node$label
                     node_type <- selected_node$type
-                    cat("DEBUG: Extracted node_type:", node_type, "\n")
-                    print(node_type)
                     
                     # Handle different node types
                     if (node_type == "gene") {
