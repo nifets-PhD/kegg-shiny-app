@@ -1914,11 +1914,20 @@ server <- function(input, output, session) {
                                 gene_colors <- gene_colors[valid_color_indices]
                             }
                             
-                            # Create the plot
-                            p <- create_gene_profiles_plot(phyloset,
-                                                         selected_genes = all_genes_to_plot,
-                                                         interaction_colors = gene_colors,
-                                                         title = plot_title)
+                            # Create the plot with appropriate coloring
+                            if (coloring_mode == "phylostratum") {
+                                # Use phylostratum coloring instead of interaction colors
+                                p <- create_gene_profiles_plot(phyloset,
+                                                             selected_genes = all_genes_to_plot,
+                                                             interaction_colors = NULL,  # Let function use phylostratum colors
+                                                             title = plot_title)
+                            } else {
+                                # Use interaction colors
+                                p <- create_gene_profiles_plot(phyloset,
+                                                             selected_genes = all_genes_to_plot,
+                                                             interaction_colors = gene_colors,
+                                                             title = plot_title)
+                            }
                             return(p)
                         }
                     }
@@ -1957,11 +1966,20 @@ server <- function(input, output, session) {
                                                             length(valid_pathway_genes) - length(uploaded_in_pathway), " others)"))
                 return(p)
                 
-            } else {
-                # Phylostratum: Show gene heatmap colored by phylostratum
-                p <- create_gene_heatmap_plot(phyloset,
+            } else if (coloring_mode == "phylostratum") {
+                # Phylostratum: Show gene profiles colored by phylostratum
+                p <- create_gene_profiles_plot(phyloset,
                                             selected_genes = valid_pathway_genes,
-                                            title = paste0("Gene Expression Heatmap (", length(valid_pathway_genes), " pathway genes)"))
+                                            interaction_colors = NULL,  # Let function use phylostratum colors
+                                            title = paste0("Expression Profiles by Phylostratum (", length(valid_pathway_genes), " pathway genes)"))
+                return(p)
+                
+            } else {
+                # Default/other coloring modes: Show gene profiles with default colors
+                p <- create_gene_profiles_plot(phyloset,
+                                            selected_genes = valid_pathway_genes,
+                                            interaction_colors = NULL,
+                                            title = paste0("Expression Profiles (", length(valid_pathway_genes), " pathway genes)"))
                 return(p)
             }
             
