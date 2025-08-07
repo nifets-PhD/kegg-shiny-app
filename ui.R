@@ -344,7 +344,7 @@ ui <- dashboardPage(
                             # Show plot when both phyloset and pathway are loaded
                             conditionalPanel(
                                 condition = "output.phyloset_created && output.pathway_loaded",
-                                plotOutput("pathway_expression_plot", height = "400px")
+                                plotOutput("pathway_expression_plot", height = "600px")
                             ),
                             
                             # Direct to evolution tab when no phyloset created

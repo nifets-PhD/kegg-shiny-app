@@ -3,6 +3,7 @@
 # Run this script to update the gene mapping data file
 
 library(biomaRt)
+library(dplyr)
 
 cat("Starting comprehensive gene ID mapping download from Ensembl...\n")
 
@@ -14,6 +15,21 @@ if (!dir.exists("data")) {
 # Function to download mapping with retry logic
 download_gene_mapping <- function() {
     tryCatch({
+        # Function to merge UniProt IDs for duplicate rows
+        merge_uniprot <- function(uniprot_ids) {
+            # Remove NA and empty strings
+            clean_ids <- uniprot_ids[!is.na(uniprot_ids) & uniprot_ids != ""]
+            
+            if (length(clean_ids) == 0) {
+                return(NA_character_)
+            } else if (length(clean_ids) == 1) {
+                return(clean_ids[1])
+            } else {
+                # If multiple non-empty UniProt IDs, join them with semicolon
+                return(paste(unique(clean_ids), collapse = ";"))
+            }
+        }
+        
         # Connect to Ensembl BioMart with retry logic
         cat("Connecting to Ensembl BioMart...\n")
         
@@ -110,6 +126,19 @@ download_gene_mapping <- function() {
         
         if (nrow(mapping_result) > 0) {
             cat("Processing", nrow(mapping_result), "records...\n")
+            
+            # Merge duplicate rows that differ only in UniProt ID
+            cat("Merging duplicate rows...\n")
+            original_count <- nrow(mapping_result)
+            mapping_result <- mapping_result %>%
+                group_by(hgnc_symbol, entrezgene_id, ensembl_gene_id) %>%
+                summarise(
+                    uniprotswissprot = merge_uniprot(uniprotswissprot),
+                    .groups = "drop"
+                )
+            
+            cat("Merged", original_count - nrow(mapping_result), "duplicate rows\n")
+            cat("Kept", nrow(mapping_result), "unique records\n")
             
             # Filter for records with at least one valid ID
             has_hgnc <- !is.na(mapping_result$hgnc_symbol) & mapping_result$hgnc_symbol != ""
