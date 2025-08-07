@@ -64,6 +64,11 @@ generate_custom_css <- function() {
       background-color: ", CSS_COLORS$dark_purple, " !important;
     }
     
+    /* Sidebar footer styling - fixed position to avoid scroll issues */
+    .main-sidebar .sidebar {
+      position: relative;
+    }
+    
     .sidebar-menu > li > a {
       color: ", CSS_COLORS$white, " !important;
     }

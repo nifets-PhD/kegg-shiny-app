@@ -4,7 +4,7 @@ source("R/color_config.R")
 # Define UI
 ui <- dashboardPage(
     skin = "purple",  # Use purple skin
-    dashboardHeader(title = "Evolutionary Pathways - Powered by myTAI"),
+    dashboardHeader(title = "Pathway Evolution Analysis"),
     
     dashboardSidebar(
         sidebarMenu(id = "tabs",
@@ -13,6 +13,24 @@ ui <- dashboardPage(
             menuItem("Your Gene Set", tabName = "geneset", icon = icon("list")),
             menuItem("KEGG Enrichment", tabName = "enrichment", icon = icon("chart-bar")),
             menuItem("Your Expression Data", tabName = "evolution", icon = icon("dna"))
+        ),
+        
+        # Add footer to sidebar
+        div(
+            style = "position: fixed; bottom: 10px; left: 0; right: 230px; text-align: center; 
+                     color: #999; font-size: 11px; padding: 0 10px; z-index: 1000;
+                     background-color: rgba(28, 23, 47, 0.9); margin-left: 0; width: 230px;",
+            hr(style = "border-color: #444; margin: 5px 0;"),
+            div(
+                style = "display: flex; align-items: center; justify-content: center; gap: 5px;",
+                span("Powered by"),
+                tags$a(
+                    href = "https://github.com/drostlab/myTAI",
+                    target = "_blank",
+                    style = "color: #bb86fc; font-weight: bold; text-decoration: none;",
+                    "myTAI"
+                )
+            )
         )
     ),
     
