@@ -982,8 +982,14 @@ prepare_kegg_nodes <- function(nodes, show_labels = TRUE, highlight_genes = NULL
         borderWidth = 1,
         borderWidthSelected = 2,
         hgnc_symbol = if(!is.null(nodes$hgnc_symbol)) nodes$hgnc_symbol else nodes$label,
+        hidden = FALSE,     # Default to visible
         stringsAsFactors = FALSE
     )
+    
+    # Hide group nodes
+    if (!is.null(nodes$type)) {
+        vis_nodes$hidden[nodes$type == "group"] <- TRUE
+    }
     
     # Initialize font as a list column - each row gets a named list
     vis_nodes$font <- replicate(nrow(vis_nodes), list(color = "#000000", size = 11, face = "arial"), simplify = FALSE)
