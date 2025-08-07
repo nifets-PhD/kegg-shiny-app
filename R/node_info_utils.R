@@ -68,26 +68,16 @@ get_gene_info_for_consolidated <- function(gene_symbol, hsa_id = NULL, comprehen
     # Build basic gene info
     if (!is.null(gene_info)) {
         html_output <- paste0(
-            "<strong>Gene Symbol:</strong> ", gene_symbol, "<br>",
-            if (!is.null(gene_info$gene_name) && !is.na(gene_info$gene_name)) 
-                paste0("<strong>Gene Name:</strong> ", gene_info$gene_name, "<br>") else "",
+            "<strong>Gene Symbol:</strong> <b>", gene_symbol, "</b><br>",
             if (!is.null(entrez_id) && entrez_id != "") 
-                paste0("<strong>Entrez ID:</strong> ", entrez_id, "<br>") else "",
+                paste0("<strong>Entrez ID:</strong>  <code>", entrez_id, "</code><br>") else "",
             if (!is.null(gene_info$ensembl_gene_id) && !is.na(gene_info$ensembl_gene_id)) 
                 paste0("<strong>Ensembl ID:</strong> ", gene_info$ensembl_gene_id, "<br>") else "",
-            if (!is.null(gene_info$uniprotswissprot) && !is.na(gene_info$uniprotswissprot)) 
-                paste0("<strong>UniProt ID:</strong> ", gene_info$uniprotswissprot, "<br>") else ""
+            if (!is.null(gene_info$uniprotswissprot) && !is.na(gene_info$uniprotswissprot) && gene_info$uniprotswissprot != "") 
+                paste0("<strong>UniProt ID:</strong> ", gene_info$uniprotswissprot, " ",
+                "<a href='https://www.uniprot.org/uniprot/", gene_info$uniprotswissprot, "/entry#structure", "' target='_blank' style='color: #007bff; text-decoration: underline;'>",
+                "View in UniProt ↗</a><br>") else ""
         )
-        
-        # Build UniProt 3D structure links
-        if (!is.null(gene_info$uniprotswissprot) && !is.na(gene_info$uniprotswissprot) && gene_info$uniprotswissprot != "") {
-            uniprot_html <- paste0(
-                "<a href='https://www.uniprot.org/uniprot/", gene_info$uniprotswissprot, "' target='_blank' style='color: #007bff; text-decoration: underline;'>",
-                "View ", gene_info$uniprotswissprot, " in UniProt ↗</a><br>",
-                "<a href='https://alphafold.ebi.ac.uk/entry/", gene_info$uniprotswissprot, "' target='_blank' style='color: #007bff; text-decoration: underline;'>",
-                "View AlphaFold Structure ↗</a><br>"
-            )
-        }
     } else {
         html_output <- paste0(
             "<strong>Gene Symbol:</strong> ", gene_symbol, "<br>",
@@ -99,7 +89,6 @@ get_gene_info_for_consolidated <- function(gene_symbol, hsa_id = NULL, comprehen
     
     return(list(
         html = html_output,
-        uniprot_html = uniprot_html,
         gene_info = gene_info
     ))
 }
@@ -135,7 +124,7 @@ build_relationship_info <- function(incoming_edges, outgoing_edges, nodes_data) 
     }
     
     info <- paste0(
-        "<br><strong>=== NETWORK RELATIONSHIPS ===</strong><br>",
+        "<br><strong>NETWORK RELATIONSHIPS</strong><br>",
         "Incoming connections: ", nrow(incoming_edges), "<br>",
         "Outgoing connections: ", nrow(outgoing_edges), "<br>"
     )
@@ -190,79 +179,29 @@ build_relationship_info <- function(incoming_edges, outgoing_edges, nodes_data) 
 }
 
 # Helper function: Build phylostratum info (only for genes)
-build_phylostratum_info <- function(gene_symbol, gene_name, selected_node) {
-    phylo_stratum <- NULL
-    
-    # Try to get from node first
-    if (!is.null(selected_node$phylostratum) && !is.na(selected_node$phylostratum)) {
-        phylo_stratum <- selected_node$phylostratum
-    } else {
-        # Fallback: lookup phylostratum
-        phylo_stratum <- tryCatch({
-            if (!exists("phylomap_data") || is.null(phylomap_data)) {
-                source("R/kegg_utils.R", local = TRUE)
-                phylomap_data <<- load_phylomap(verbose = FALSE)
-            }
-            
-            if (!is.null(phylomap_data)) {
-                # Try by gene symbol first
-                if (!is.null(gene_symbol) && !is.na(gene_symbol) && gene_symbol != "") {
-                    gene_strata <- map_genes_to_phylostrata(gene_symbol, "symbol", phylomap = phylomap_data, verbose = FALSE)
-                    if (!is.na(gene_strata[1])) {
-                        cat("Found phylostratum for", gene_symbol, ":", gene_strata[1], "\n")
-                        return(gene_strata[1])
-                    }
-                }
-                
-                # Try by Entrez ID
-                if (!is.null(gene_name) && grepl("^hsa:", gene_name)) {
-                    entrez_id <- sub("^hsa:", "", gene_name)
-                    gene_strata <- map_genes_to_phylostrata(entrez_id, "entrez", phylomap = phylomap_data, verbose = FALSE)
-                    if (!is.na(gene_strata[1])) {
-                        cat("Found phylostratum for Entrez", entrez_id, ":", gene_strata[1], "\n")
-                        return(gene_strata[1])
-                    }
-                }
-            }
-            return(NULL)
-        }, error = function(e) NULL)
+get_phylostratum_info <- function(gene_symbol, gene_name, selected_node, phylomap_data, legend_df) {
+
+    ps <- NA
+    if (!is.null(gene_symbol) && !is.na(gene_symbol) && gene_symbol != "") {
+        gene_strata <- map_genes_to_phylostrata(gene_symbol, "symbol", phylomap = phylomap_data, verbose = FALSE)
+        ps <- gene_strata[1]
     }
     
-    if (is.null(phylo_stratum) || is.na(phylo_stratum)) {
-        return("")
+    if (!is.na(ps)) {
+        phylo_row <- legend_df[legend_df$Rank == ps, ]
+        phylo_name <- phylo_row$Name[1]
+        phylo_color <- phylo_row$Color[1]
+    } 
+    else {
+        ps <- "NA"
+        phylo_name <- ""
+        phylo_color <- "#D3D3D3"
     }
-    
-    # Get phylostratum display with color
-    legend_data <- tryCatch({
-        if (!exists("phylo_legend_data") || is.null(phylo_legend_data)) {
-            source("R/kegg_utils.R", local = TRUE)
-            phylo_legend_data <<- load_phylostratum_legend()
-        }
-        phylo_legend_data
-    }, error = function(e) NULL)
-    
-    if (!is.null(legend_data)) {
-        phylo_row <- legend_data[legend_data$Rank == phylo_stratum, ]
-        if (nrow(phylo_row) > 0) {
-            phylo_name <- phylo_row$Name[1]
-            phylo_color <- if (!is.null(phylo_row$Color) && !is.na(phylo_row$Color[1])) phylo_row$Color[1] else "#000000"
-            return(paste0(
-                "<br><strong>=== PHYLOSTRATUM ===</strong><br>",
-                "<div style='background-color: ", phylo_color, "; color: white; padding: 4px 8px; border-radius: 4px; display: inline-block; margin: 2px 0;'>",
-                "<strong>Phylostratum:</strong> ", phylo_stratum, " - ", phylo_name,
-                "</div><br>"
-            ))
-        }
-    }
-    
-    return(paste0(
-        "<br><strong>=== PHYLOSTRATUM ===</strong><br>",
-        "<strong>Phylostratum:</strong> ", phylo_stratum, "<br>"
-    ))
+    return(list(rank=ps, name=phylo_name, color=phylo_color))
 }
 
 # GENE NODE HANDLER (unified for single and multi-gene)
-build_gene_node_info <- function(selected_node, incoming_edges, outgoing_edges, nodes_data, comprehensive_mapping) {
+build_gene_node_info <- function(selected_node, incoming_edges, outgoing_edges, nodes_data, comprehensive_mapping, phylomap_data, legend_df) {
     # Determine if consolidated or single gene
     is_consolidated <- !is.null(selected_node$is_consolidated) && 
                      !is.na(selected_node$is_consolidated) && 
@@ -270,17 +209,13 @@ build_gene_node_info <- function(selected_node, incoming_edges, outgoing_edges, 
     
     if (is_consolidated) {
         # Multi-gene node
-        gene_count <- selected_node$gene_count
         all_hsa_ids <- strsplit(selected_node$all_hsa_ids, ",")[[1]]
         all_gene_symbols <- strsplit(selected_node$all_gene_symbols, ",")[[1]]
-        node_label <- "CONSOLIDATED GENE NODE"
     } else {
         # Single gene node - treat as consolidated with count=1
-        gene_count <- 1
         gene_symbol <- extract_gene_symbol(selected_node, selected_node$gene_name, comprehensive_mapping)
         all_hsa_ids <- c(selected_node$gene_name)
         all_gene_symbols <- c(gene_symbol)
-        node_label <- "GENE NODE"
     }
     
     # Get pathway genes for EMERALD (common logic)
@@ -294,15 +229,13 @@ build_gene_node_info <- function(selected_node, incoming_edges, outgoing_edges, 
         
         gene_info_result <- get_gene_info_for_consolidated(symbol, hsa_id, comprehensive_mapping, pathway_genes_with_uniprot, selected_node)
         
-        # Add phylostratum info for first gene only (to avoid repetition)
-        phylo_info <- if (i == 1) build_phylostratum_info(symbol, hsa_id, selected_node) else ""
+        # Add phylostratum info 
+        phylo_info <- get_phylostratum_info(symbol, hsa_id, selected_node, phylomap_data, legend_df)
         
         genes_info_html <- paste0(genes_info_html, 
-            "<div style='margin-bottom: 15px; border-left: 3px solid #007cba; padding-left: 10px; background-color: #f8f9fa;'>",
-            if (gene_count > 1) paste0("<strong>Gene ", i, ":</strong> ", symbol, "<br>") else "",
+            "<div style='margin-bottom: 15px; border-left: 7px solid",phylo_info$color,"; padding-left: 10px; background-color: #f8f9fa;'>",
             gene_info_result$html,
-            if (gene_info_result$uniprot_html != "") paste0("<br><strong>=== 3D PROTEIN STRUCTURES ===</strong><br>", gene_info_result$uniprot_html) else "",
-            phylo_info,
+            "<strong>Phylostratum:</strong> <span style='color:", phylo_info$color, ";'>", phylo_info$rank, " - ", phylo_info$name, "</span>",
             "</div>"
         )
     }
@@ -313,24 +246,9 @@ build_gene_node_info <- function(selected_node, incoming_edges, outgoing_edges, 
     # Create final HTML
     html_content <- paste0(
         "<div style='font-family: monospace; font-size: 14px; line-height: 1.6;'>",
-        "<strong>=== ", node_label, " ===</strong><br>",
-        "<strong>Node Type:</strong> ", if (gene_count > 1) "Multi-gene entry" else "Single gene", "<br>",
-        "<strong>Gene Count:</strong> ", gene_count, if (gene_count > 1) " genes" else " gene", "<br>",
-        "<strong>Display Label:</strong> ", selected_node$label, "<br>",
-        "<strong>Gene Symbol(s):</strong> ", paste(all_gene_symbols, collapse=", "), "<br>",
-        "<strong>KEGG Entry(s):</strong> <code>", paste(all_hsa_ids, collapse=", "), "</code><br>",
-        
-        "<br><strong>=== GENE INFORMATION ===</strong><br>",
+        "<br><strong>GENE INFORMATION</strong><br>",
         genes_info_html,
-        
         relationship_info,
-        
-        "<br><strong>=== PATHWAY CONTEXT ===</strong><br>",
-        "In KEGG, ", if (gene_count > 1) "these genes are" else "this gene is", " referenced as: <code>", paste(all_hsa_ids, collapse=", "), "</code><br>",
-        "Common name/symbol: <code>", paste(all_gene_symbols, collapse=", "), "</code><br>",
-        "<br>",
-        "<em>Tip: Search for '", paste(all_hsa_ids, collapse="' or '"), "' in KEGG database<br>",
-        "or '", paste(all_gene_symbols, collapse="' or '"), "' in gene databases</em>",
         
         # JavaScript for EMERALD (simplified, single function for both cases)
         "<script>
@@ -384,37 +302,22 @@ build_compound_node_info <- function(selected_node, incoming_edges, outgoing_edg
     compound_links <- ""
     if (length(compound_ids) > 0) {
         compound_links <- paste0(
-            "<br><strong>=== KEGG DATABASE LINKS ===</strong><br>",
+            "<strong>Compound IDs:</strong><br>",
             paste(sapply(compound_ids, function(cid) {
-                paste0("<strong>", cid, ":</strong> ",
+                paste0("• ", "<code>", cid, "</code> ",
                       "<a href='https://www.kegg.jp/entry/", cid, "' target='_blank' style='color: #007bff; text-decoration: underline;'>",
                       "View in KEGG ↗</a>")
-            }), collapse = "<br>"), "<br>"
+            }), collapse = "<br>"), "<br><br>"
         )
-    } else if (!is.null(selected_node$kegg_id) && selected_node$kegg_id != "") {
-        compound_links <- paste0(
-            "<br><strong>=== KEGG DATABASE LINK ===</strong><br>",
-            "<a href='https://www.kegg.jp/entry/", selected_node$kegg_id, "' target='_blank' style='color: #007bff; text-decoration: underline;'>",
-            "View ", selected_node$kegg_id, " in KEGG ↗</a><br>"
-        )
-    }
+    } 
     
     relationship_info <- build_relationship_info(incoming_edges, outgoing_edges, nodes_data)
     
     return(paste0(
         "<div style='font-family: monospace; font-size: 14px; line-height: 1.6;'>",
-        "<strong>=== COMPOUND INFORMATION ===</strong><br>",
-        compound_info,
-        "<strong>KEGG Compound ID:</strong> <code>", selected_node$kegg_id, "</code><br>",
-        "<strong>Original KEGG Entry:</strong> <code>", selected_node$gene_name, "</code><br>",
-        "<strong>Display Label:</strong> ", selected_node$label, "<br>",
-        relationship_info,
         compound_links,
-        "<br><strong>=== PATHWAY CONTEXT ===</strong><br>",
-        "This compound participates in pathway reactions.<br>",
-        "<br>",
-        "<em>Tip: Click the KEGG links above to view detailed compound information</em>",
-        "</div>"
+        compound_info,
+        relationship_info
     ))
 }
 
@@ -429,36 +332,19 @@ build_map_node_info <- function(selected_node, incoming_edges, outgoing_edges, n
         }
     }
     
-    # Build pathway links
-    pathway_links <- ""
-    if (pathway_id != "") {
-        pathway_links <- paste0(
-            "<br><strong>=== PATHWAY NAVIGATION ===</strong><br>",
-            "<strong>KEGG Pathway Link:</strong> ",
-            "<a href='https://www.kegg.jp/kegg-bin/show_pathway?", pathway_id, "' target='_blank' style='color: #007bff; text-decoration: underline;'>",
-            "View in KEGG ↗</a><br>",
-            "<strong>Load in Visualizer:</strong> ",
-            "<button id='load_pathway_btn_", selected_node$id, "' onclick='loadPathwayFromNode(\"", pathway_id, "\")' ",
-            "style='background-color: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; margin-top: 5px;'>",
-            "Load ", selected_node$label, "</button><br>"
-        )
-    }
     
-    relationship_info <- build_relationship_info(incoming_edges, outgoing_edges, nodes_data)
     
     return(paste0(
         "<div style='font-family: monospace; font-size: 14px; line-height: 1.6;'>",
-        "<strong>=== PATHWAY MAP INFORMATION ===</strong><br>",
-        if (pathway_id != "") paste0("<strong>Pathway ID:</strong> <code>", pathway_id, "</code><br>") else "",
-        "<strong>Original KEGG Entry:</strong> <code>", selected_node$gene_name, "</code><br>",
         "<strong>Display Label:</strong> ", selected_node$label, "<br>",
-        relationship_info,
-        pathway_links,
-        "<br><strong>=== PATHWAY CONTEXT ===</strong><br>",
-        "This node represents a reference to another KEGG pathway.<br>",
-        if (pathway_id != "") paste0("You can load the ", pathway_id, " pathway to explore it in detail.<br>") else "",
-        "<br>",
-        "<em>Tip: Click 'Load Pathway' button to navigate to the referenced pathway</em>",
+        if (pathway_id != "") paste0("<strong>Pathway ID:</strong> <code>", pathway_id, "</code>") else "",
+        "<a href='https://www.kegg.jp/kegg-bin/show_pathway?", pathway_id, " ",
+        "' target='_blank' style='color: #007bff; text-decoration: underline;'>",
+        "View in KEGG ↗</a><br>",
+        
+        "<button id='load_pathway_btn_", selected_node$id, "' onclick='loadPathwayFromNode(\"", pathway_id, "\")' ",
+        "style='background-color: #f38a2e; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; margin-top: 5px;'>",
+        "Load pathway into view", "</button><br>",
         
         # JavaScript for pathway loading
         "<script>

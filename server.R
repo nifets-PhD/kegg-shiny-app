@@ -39,288 +39,8 @@ server <- function(input, output, session) {
         # Always return "entrez" since internally everything is Entrez
         "entrez"
     })
+
     
-    # Function to get display symbols for user-friendly output
-    get_display_symbols <- reactive({
-        entrez_ids <- internal_genes()
-        if (length(entrez_ids) == 0) return(character(0))
-        return(entrez_to_symbols(entrez_ids, comprehensive_mapping))
-    })
-    
-    # Helper function to get comprehensive gene information for consolidated nodes
-    get_gene_info_for_consolidated <- function(gene_symbol, hsa_id = NULL, comprehensive_mapping = NULL, pathway_genes_with_uniprot = NULL, selected_node = NULL) {
-        # Initialize output
-        html_output <- ""
-        uniprot_html <- ""
-        
-        # Clean inputs
-        gene_symbol <- trimws(gene_symbol)
-        if (!is.null(hsa_id)) hsa_id <- trimws(hsa_id)
-        
-        # Extract Entrez ID from HSA format
-        entrez_id <- if (!is.null(hsa_id) && grepl("^hsa:", hsa_id)) {
-            sub("^hsa:", "", hsa_id)
-        } else {
-            hsa_id
-        }
-        
-        # Get comprehensive gene information from mapping
-        gene_info <- NULL
-        if (!is.null(comprehensive_mapping) && !is.null(gene_symbol) && gene_symbol != "") {
-            tryCatch({
-                # Look up by HGNC symbol first
-                gene_matches <- comprehensive_mapping[
-                    !is.na(comprehensive_mapping$hgnc_symbol) & 
-                    comprehensive_mapping$hgnc_symbol == gene_symbol, 
-                ]
-                
-                # If no symbol match, try by Entrez ID
-                if (nrow(gene_matches) == 0 && !is.null(entrez_id) && entrez_id != "") {
-                    gene_matches <- comprehensive_mapping[
-                        !is.na(comprehensive_mapping$entrezgene_id) & 
-                        comprehensive_mapping$entrezgene_id == entrez_id, 
-                    ]
-                }
-                
-                if (nrow(gene_matches) > 0) {
-                    gene_info <- gene_matches[1, ]  # Take first match if multiple
-                }
-            }, error = function(e) {
-                cat("Error getting gene info for", gene_symbol, ":", e$message, "\n")
-            })
-        }
-        
-        # Get phylostratum information with color coding
-        phylo_info_html <- ""
-        if (!is.null(selected_node) && !is.null(selected_node$phylostratum) && !is.na(selected_node$phylostratum)) {
-            phylo_stratum <- selected_node$phylostratum
-            # Load phylostratum legend to get the name and color
-            legend_data <- tryCatch({
-                source("R/kegg_utils.R", local = TRUE)
-                load_phylostratum_legend()
-            }, error = function(e) NULL)
-            
-            if (!is.null(legend_data)) {
-                phylo_row <- legend_data[legend_data$Rank == phylo_stratum, ]
-                if (nrow(phylo_row) > 0) {
-                    phylo_name <- phylo_row$Name[1]
-                    phylo_color <- if (!is.null(phylo_row$Color) && !is.na(phylo_row$Color[1])) phylo_row$Color[1] else "#000000"
-                    phylo_info_html <- paste0(
-                        "<strong>Phylostratum:</strong> <span style='color: ", phylo_color, "; font-weight: bold;'>",
-                        phylo_stratum, " - ", phylo_name, "</span><br>"
-                    )
-                } else {
-                    phylo_info_html <- paste0("<strong>Phylostratum:</strong> ", phylo_stratum, "<br>")
-                }
-            } else {
-                phylo_info_html <- paste0("<strong>Phylostratum:</strong> ", phylo_stratum, "<br>")
-            }
-        } else {
-            # DEBUG: Try to get phylostratum data directly if not in selected_node
-            if (!is.null(gene_symbol) && gene_symbol != "") {
-                tryCatch({
-                    # Use already loaded phylomap data if available
-                    if (!exists("phylomap_data") || is.null(phylomap_data)) {
-                        source("R/kegg_utils.R", local = TRUE)
-                        phylomap_data <<- load_phylomap(verbose = FALSE)  # Cache in global environment
-                    }
-                    gene_strata <- map_genes_to_phylostrata(gene_symbol, "symbol", phylomap = phylomap_data, verbose = FALSE)
-                    if (!is.na(gene_strata[1])) {
-                        # Use cached legend data if available
-                        if (!exists("phylo_legend_data") || is.null(phylo_legend_data)) {
-                            phylo_legend_data <<- load_phylostratum_legend()  # Cache in global environment
-                        }
-                        if (!is.null(phylo_legend_data)) {
-                            phylo_row <- phylo_legend_data[phylo_legend_data$Rank == gene_strata[1], ]
-                            if (nrow(phylo_row) > 0) {
-                                phylo_name <- phylo_row$Name[1]
-                                phylo_color <- if (!is.null(phylo_row$Color) && !is.na(phylo_row$Color[1])) phylo_row$Color[1] else "#000000"
-                                phylo_info_html <- paste0(
-                                    "<strong>Phylostratum:</strong> <span style='color: ", phylo_color, "; font-weight: bold;'>",
-                                    gene_strata[1], " - ", phylo_name, "</span><br>"
-                                )
-                            } else {
-                                phylo_info_html <- paste0("<strong>Phylostratum:</strong> ", gene_strata[1], "<br>")
-                            }
-                        } else {
-                            phylo_info_html <- paste0("<strong>Phylostratum:</strong> ", gene_strata[1], "<br>")
-                        }
-                    }
-                }, error = function(e) {
-                    # If phylostratum lookup fails, silently continue
-                })
-            }
-        }
-        
-        # Build comprehensive gene information HTML
-        if (!is.null(gene_info)) {
-            # Build comprehensive ID information (excluding KEGG ID since it's same as Entrez)
-            html_output <- paste0(
-                "<strong>Gene Symbol (HGNC):</strong> <code>", 
-                if (!is.null(gene_info$hgnc_symbol) && !is.na(gene_info$hgnc_symbol)) gene_info$hgnc_symbol else gene_symbol, 
-                "</code><br>",
-                
-                if (!is.null(gene_info$entrezgene_id) && !is.na(gene_info$entrezgene_id) && gene_info$entrezgene_id != "") 
-                    paste0("<strong>Entrez Gene ID:</strong> <code>", gene_info$entrezgene_id, "</code><br>") else "",
-                    
-                if (!is.null(gene_info$ensembl_gene_id) && !is.na(gene_info$ensembl_gene_id) && gene_info$ensembl_gene_id != "") 
-                    paste0("<strong>Ensembl Gene ID:</strong> <code>", gene_info$ensembl_gene_id, "</code><br>") else "",
-                    
-                # Make UniProt ID clickable link to 3D structure
-                if (!is.null(gene_info$uniprotswissprot) && !is.na(gene_info$uniprotswissprot) && gene_info$uniprotswissprot != "") 
-                    paste0("<strong>UniProt ID:</strong> <a href='https://www.uniprot.org/uniprotkb/", gene_info$uniprotswissprot, "/entry#structure' target='_blank' style='color: #0066CC; text-decoration: underline;'><code>", gene_info$uniprotswissprot, "</code></a> <small>(go to 3D structure)</small><br>") else "",
-                
-                phylo_info_html
-            )
-            
-            # Add protein information if available
-            protein_info_parts <- c()
-            
-            if (!is.null(gene_info$name) && !is.na(gene_info$name) && gene_info$name != "") {
-                protein_info_parts <- c(protein_info_parts, 
-                    paste0("<strong>Protein Name:</strong> ", gene_info$name, "<br>"))
-            }
-            
-            if (!is.null(gene_info$alias_symbol) && !is.na(gene_info$alias_symbol) && gene_info$alias_symbol != "") {
-                protein_info_parts <- c(protein_info_parts, 
-                    paste0("<strong>Aliases:</strong> ", gene_info$alias_symbol, "<br>"))
-            }
-            
-            # Add protein information section if we have any
-            if (length(protein_info_parts) > 0) {
-                html_output <- paste0(html_output, paste(protein_info_parts, collapse = ""))
-            }
-            
-            # Add EMERALD alignment section for this individual gene
-            if (!is.null(gene_info$uniprotswissprot) && !is.na(gene_info$uniprotswissprot) && gene_info$uniprotswissprot != "" &&
-                !is.null(pathway_genes_with_uniprot) && length(pathway_genes_with_uniprot) > 0) {
-                
-                # Create unique ID for this gene's EMERALD section
-                gene_emerald_id <- paste0("emerald_", gsub("[^A-Za-z0-9]", "_", gene_symbol))
-                
-                html_output <- paste0(html_output,
-                    "<div style='display: flex; align-items: center; margin: 2px 0;'>",
-                    "<strong style='margin-right: 8px; white-space: nowrap;'>EMERALD Protein Alignment:</strong>",
-                    "<select id='", gene_emerald_id, "_select' onchange='selectSecondGeneForGene(\"", gene_symbol, "\", \"", gene_info$uniprotswissprot, "\", this.value, \"", gene_emerald_id, "\")' style='width: 200px; font-size: 12px;'>",
-                    "<option value=''>Compare with...</option>",
-                    paste0("<option value='", pathway_genes_with_uniprot, "'>", pathway_genes_with_uniprot, "</option>", collapse = ""),
-                    "</select>",
-                    "</div>",
-                    "<div id='", gene_emerald_id, "_container' style='margin-top: 2px; font-size: 12px;'></div>"
-                )
-            }
-            
-        } else {
-            # Fallback to basic information if comprehensive mapping failed
-            html_output <- paste0(
-                "<strong>Gene Symbol:</strong> <code>", gene_symbol, "</code><br>",
-                if (!is.null(entrez_id) && entrez_id != "") 
-                    paste0("<strong>Entrez Gene ID:</strong> <code>", entrez_id, "</code><br>") else "",
-                phylo_info_html,
-                "<em>Limited information available - comprehensive mapping not found</em><br>"
-            )
-            
-            # Try simpler UniProt lookup as fallback
-            if (!is.null(gene_symbol) && gene_symbol != "") {
-                uniprot_id <- get_uniprot_id(gene_symbol, comprehensive_mapping)
-                if (!is.null(uniprot_id)) {
-                    html_output <- paste0(html_output,
-                        "<strong>UniProt ID:</strong> <a href='https://www.uniprot.org/uniprotkb/", uniprot_id, "/entry#structure' target='_blank' style='color: #0066CC; text-decoration: underline;'><code>", uniprot_id, "</code></a> <small>(go to 3D structure)</small><br>"
-                    )
-                }
-            }
-        }
-        
-        html_output <- paste0(html_output, "<br>")
-        
-        return(list(html = html_output, uniprot_html = "", gene_info = gene_info))
-    }
-    
-    # Reusable function to get pathway genes with UniProt IDs
-    get_pathway_genes_with_uniprot <- function(current_node_id = NULL) {
-        pathway_genes_with_uniprot <- c()
-        if (!is.null(values$nodes) && nrow(values$nodes) > 0 && !is.null(comprehensive_mapping)) {
-            for (i in seq_len(nrow(values$nodes))) {
-                node <- values$nodes[i, ]
-                if (!is.null(node$hgnc_symbol) && !is.na(node$hgnc_symbol) && node$hgnc_symbol != "" &&
-                    (is.null(current_node_id) || node$id != current_node_id)) {  # Exclude current node if specified
-                    # Look up UniProt for this node
-                    node_mapping <- comprehensive_mapping[
-                        !is.na(comprehensive_mapping$hgnc_symbol) & 
-                        comprehensive_mapping$hgnc_symbol == node$hgnc_symbol & 
-                        !is.na(comprehensive_mapping$uniprotswissprot) & 
-                        comprehensive_mapping$uniprotswissprot != "", 
-                    ]
-                    if (nrow(node_mapping) > 0) {
-                        pathway_genes_with_uniprot <- c(pathway_genes_with_uniprot, node$hgnc_symbol)
-                    }
-                }
-            }
-        }
-        return(pathway_genes_with_uniprot)
-    }
-    
-    # Reusable function to build relationship information
-    build_relationship_info <- function(incoming_edges, outgoing_edges) {
-        relationship_info <- ""
-        if (nrow(incoming_edges) > 0 || nrow(outgoing_edges) > 0) {
-            relationship_info <- paste0(
-                "<br><strong>=== NETWORK RELATIONSHIPS ===</strong><br>",
-                "Incoming connections: ", nrow(incoming_edges), "<br>",
-                "Outgoing connections: ", nrow(outgoing_edges), "<br>"
-            )
-            
-            # Show some specific relationships
-            if (nrow(incoming_edges) > 0) {
-                sample_incoming <- head(incoming_edges, 3)
-                for (i in seq_len(nrow(sample_incoming))) {
-                    edge <- sample_incoming[i, ]
-                    rel_type <- if (!is.null(edge$relation_type) && !is.na(edge$relation_type)) edge$relation_type else "Unknown"
-                    subtype <- if (!is.null(edge$subtype) && !is.na(edge$subtype) && edge$subtype != "") edge$subtype else ""
-                    
-                    # Find the source node name
-                    source_node <- values$nodes[values$nodes$id == edge$from, ]
-                    source_name <- edge$from  # default fallback
-                    if (nrow(source_node) > 0) {
-                        if (!is.null(source_node$hgnc_symbol) && !is.na(source_node$hgnc_symbol) && source_node$hgnc_symbol != "") {
-                            source_name <- source_node$hgnc_symbol
-                        } else if (!is.null(source_node$label) && !is.na(source_node$label) && source_node$label != "") {
-                            source_name <- source_node$label
-                        }
-                    }
-                    
-                    relationship_info <- paste0(relationship_info, 
-                        "← ", source_name, " (", rel_type, 
-                        if (subtype != "") paste0(": ", subtype) else "", ")", "<br>")
-                }
-            }
-            
-            if (nrow(outgoing_edges) > 0) {
-                sample_outgoing <- head(outgoing_edges, 3)
-                for (i in seq_len(nrow(sample_outgoing))) {
-                    edge <- sample_outgoing[i, ]
-                    rel_type <- if (!is.null(edge$relation_type) && !is.na(edge$relation_type)) edge$relation_type else "Unknown"
-                    subtype <- if (!is.null(edge$subtype) && !is.na(edge$subtype) && edge$subtype != "") edge$subtype else ""
-                    
-                    # Find the target node name
-                    target_node <- values$nodes[values$nodes$id == edge$to, ]
-                    target_name <- edge$to  # default fallback
-                    if (nrow(target_node) > 0) {
-                        if (!is.null(target_node$hgnc_symbol) && !is.na(target_node$hgnc_symbol) && target_node$hgnc_symbol != "") {
-                            target_name <- target_node$hgnc_symbol
-                        } else if (!is.null(target_node$label) && !is.na(target_node$label) && target_node$label != "") {
-                            target_name <- target_node$label
-                        }
-                    }
-                    
-                    relationship_info <- paste0(relationship_info, 
-                        "→ ", target_name, " (", rel_type, 
-                        if (subtype != "") paste0(": ", subtype) else "", ")", "<br>")
-                }
-            }
-        }
-        return(relationship_info)
-    }
     
     # Reactive values for gene validation
     gene_validation_results <- reactiveVal(NULL)
@@ -436,6 +156,8 @@ server <- function(input, output, session) {
         cat("Error loading comprehensive phylomap data:", e$message, "\n")
         phylomap_data <- NULL
     })
+
+    legend_df <- generate_phylostratum_legend()
     
     # Load comprehensive gene ID mapping
     comprehensive_mapping <- NULL
@@ -1304,7 +1026,7 @@ server <- function(input, output, session) {
                 
                 # Route to appropriate handler based on node type
                 if (node_type == "gene") {
-                    html_content <- build_gene_node_info(selected_node, incoming_edges, outgoing_edges, values$nodes, comprehensive_mapping)
+                    html_content <- build_gene_node_info(selected_node, incoming_edges, outgoing_edges, values$nodes, comprehensive_mapping, phylomap_data, legend_df)
                 } else if (node_type == "compound") {
                     html_content <- build_compound_node_info(selected_node, incoming_edges, outgoing_edges, values$nodes)
                 } else if (node_type == "map") {
@@ -1409,7 +1131,7 @@ server <- function(input, output, session) {
     
     # Phylostratum legend table
     output$phylostratum_legend_table <- DT::renderDataTable({
-        legend_df <- generate_phylostratum_legend()
+        
         
         if (is.null(legend_df)) {
             return(data.frame(Message = "Phylostratum legend data not available"))
@@ -2428,60 +2150,45 @@ server <- function(input, output, session) {
     
     # Evolution strata legend table
     output$evolution_strata_legend <- DT::renderDataTable({
-        strata_legend <- load_strata_legend()
-        if (!is.null(strata_legend)) {
-            # Generate colors for phylostrata like in network tab
-            max_stratum <- max(strata_legend$Rank)
-            all_colors <- PS_colours(max_stratum)
+
             
-            # Create legend data frame with colors
-            legend_df <- data.frame(
-                Rank = strata_legend$Rank,
-                Name = strata_legend$Name,
-                Color = all_colors[strata_legend$Rank],
-                stringsAsFactors = FALSE
-            )
-            
-            # Create colored table like in network tab
-            DT::datatable(
-                legend_df[, c("Rank", "Name")],  # Show rank and name columns
-                options = list(
-                    pageLength = 28,  # Show all strata
-                    paging = FALSE,   # Disable paging
-                    searching = FALSE, # Disable search
-                    info = FALSE,     # Hide table info
-                    dom = 't',        # Only show table
-                    scrollY = '350px',
-                    scrollCollapse = TRUE,
-                    columnDefs = list(
-                        list(width = '40px', targets = 0, className = 'text-center'),  # Rank column
-                        list(width = '160px', targets = 1)  # Name column
-                    )
-                ),
-                rownames = FALSE,
-                colnames = c("PS", "Evolutionary Stage")
-            ) %>%
-            DT::formatStyle(
-                "Rank",
-                backgroundColor = DT::styleEqual(
-                    legend_df$Rank,
-                    legend_df$Color
-                ),
-                color = DT::styleEqual(
-                    legend_df$Rank,
-                    sapply(legend_df$Color, function(color) {
-                        if (is.na(color)) return("#000000")
-                        # Calculate brightness to determine text color
-                        rgb_vals <- col2rgb(color)
-                        brightness <- (rgb_vals[1] * 0.299 + rgb_vals[2] * 0.587 + rgb_vals[3] * 0.114) / 255
-                        if (brightness < 0.5) "#FFFFFF" else "#000000"
-                    })
-                ),
-                fontWeight = "bold"
-            )
-        } else {
-            DT::datatable(data.frame(Message = "Phylostratum legend data not available"))
-        }
+        # Create colored table like in network tab
+        DT::datatable(
+            legend_df[, c("Rank", "Name")],  # Show rank and name columns
+            options = list(
+                pageLength = 28,  # Show all strata
+                paging = FALSE,   # Disable paging
+                searching = FALSE, # Disable search
+                info = FALSE,     # Hide table info
+                dom = 't',        # Only show table
+                scrollY = '350px',
+                scrollCollapse = TRUE,
+                columnDefs = list(
+                    list(width = '40px', targets = 0, className = 'text-center'),  # Rank column
+                    list(width = '160px', targets = 1)  # Name column
+                )
+            ),
+            rownames = FALSE,
+            colnames = c("PS", "Evolutionary Stage")
+        ) %>%
+        DT::formatStyle(
+            "Rank",
+            backgroundColor = DT::styleEqual(
+                legend_df$Rank,
+                legend_df$Color
+            ),
+            color = DT::styleEqual(
+                legend_df$Rank,
+                sapply(legend_df$Color, function(color) {
+                    if (is.na(color)) return("#000000")
+                    # Calculate brightness to determine text color
+                    rgb_vals <- col2rgb(color)
+                    brightness <- (rgb_vals[1] * 0.299 + rgb_vals[2] * 0.587 + rgb_vals[3] * 0.114) / 255
+                    if (brightness < 0.5) "#FFFFFF" else "#000000"
+                })
+            ),
+            fontWeight = "bold"
+        )
     })
     
     # Gene selection status - DISABLED for streamlined UI
