@@ -9,6 +9,7 @@ ENV CXX14=g++ \
     OPENBLAS_NUM_THREADS=8 \
     MKL_NUM_THREADS=8
 
+# Install system dependencies (cached well)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gdebi \
     build-essential \
@@ -21,20 +22,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /srv/shiny-server/kegg-app
 
-COPY DESCRIPTION .
-COPY global.R .
-
+# Install R packages FIRST (cached until you change this layer)
 RUN R -e "install.packages('remotes')" && \
     R -e "install.packages(c('shiny','shinydashboard','visNetwork','DT','dplyr','plotly','shinyWidgets','ggplot2','scales','xml2','igraph','tidyr','stringr'))" && \
     R -e "if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager')" && \
     R -e "BiocManager::install(c('KEGGREST','KEGGgraph','biomaRt','clusterProfiler','org.Hs.eg.db','DOSE'), ask=FALSE, update=FALSE)" && \
     R -e "remotes::install_github('drostlab/myTAI', upgrade='never')"
 
+# Copy application code (only rebuilds when code changes)
 COPY . .
+
+# Set up directories and permissions
 RUN mkdir -p kegg_cache cache data && \
     chown -R shiny:shiny /srv/shiny-server/kegg-app && \
     chmod -R 755 /srv/shiny-server/kegg-app
 
+# Copy configuration (always runs last to ensure correct config)
 COPY deployment/shiny-server.conf /etc/shiny-server/shiny-server.conf
 
 EXPOSE 3838
