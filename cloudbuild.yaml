@@ -1,0 +1,15 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  entrypoint: 'bash'
+  args: ['-c', 'docker pull gcr.io/$PROJECT_ID/kegg-shiny-app:latest || exit 0']
+- name: 'gcr.io/cloud-builders/docker'
+  args: [
+            'build',
+            '-t', 'gcr.io/$PROJECT_ID/kegg-shiny-app:latest',
+            '--cache-from', 'gcr.io/$PROJECT_ID/kegg-shiny-app:latest',
+            '.'
+        ]
+- name: 'gcr.io/cloud-builders/gcloud'
+  args: ['run', 'deploy', 'kegg-shiny-app', '--image', 'gcr.io/$PROJECT_ID/kegg-shiny-app:latest', '--region', 'europe-west1', '--allow-unauthenticated', '--port', '3838', '--memory', '8Gi', '--cpu', '2', '--timeout', '1800']
+images: ['gcr.io/$PROJECT_ID/kegg-shiny-app:latest']
+timeout: 3600s

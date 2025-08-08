@@ -72,6 +72,6 @@ EXPOSE 3838
 
 # Add healthcheck with longer start period for KEGG data loading
 HEALTHCHECK --interval=60s --timeout=10s --start-period=120s --retries=3 \
-    CMD curl -f http://localhost:3838/kegg-app/ || exit 1
+    CMD curl -f http://localhost:3838/ || exit 1
 
 CMD ["/usr/bin/shiny-server"]

@@ -73,8 +73,8 @@ source("R/cache_manager.R")
 if (init_shared_cache()) {
     cat("✅ Enhanced caching system initialized successfully\n")
     
-    # Warm cache with popular pathways (run in background on server start)
-    if (Sys.getenv("WARM_CACHE_ON_START", "TRUE") == "TRUE") {
+    # Warm cache with popular pathways (disabled for faster startup)
+    if (Sys.getenv("WARM_CACHE_ON_START", "FALSE") == "TRUE") {
         cat("🔥 Starting cache warming process...\n")
         warm_pathway_cache()
     }
