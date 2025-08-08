@@ -1110,12 +1110,12 @@ create_kegg_network_visualization <- function(nodes, edges, show_labels = TRUE, 
         ) %>%
         visInteraction(
             navigationButtons = TRUE, 
-            hover = TRUE,
+            hover = FALSE,  # Disable hover to prevent unwanted updates
             zoomView = TRUE,
             dragView = TRUE
         ) %>%
         visOptions(
-            highlightNearest = list(enabled = TRUE, hover = TRUE, degree = 1),
+            highlightNearest = list(enabled = TRUE, hover = FALSE, degree = 1),  # Keep highlighting but disable hover events
             nodesIdSelection = list(
                 enabled = TRUE,
                 values = vis_nodes$id[is.null(nodes$type) | nodes$type != "group"]  # Exclude group nodes from selection

@@ -1,11 +1,18 @@
 FROM rocker/shiny:latest
 
-# Set environment variables for C++ compilation
+# Set environment variables for C++ compilation and R optimization
 ENV CXX14=g++
-ENV CXX14FLAGS="-O2"
+ENV CXX14FLAGS="-O3 -march=native -mtune=native"
 ENV CXX14STD="-std=c++14"
 
-# Install system dependencies including C++14 support
+# R performance optimizations
+ENV R_COMPILE_PKGS=1
+ENV R_DISABLE_HTTPD=1
+ENV OMP_NUM_THREADS=8
+ENV OPENBLAS_NUM_THREADS=8
+ENV MKL_NUM_THREADS=8
+
+# Install system dependencies including C++14 support and performance libraries
 RUN apt-get update && apt-get install -y \
     gdebi \
     build-essential \
@@ -29,10 +36,12 @@ RUN apt-get update && apt-get install -y \
     gfortran \
     libblas-dev \
     liblapack-dev \
+    libopenblas-dev \
     libnode-dev \
     libglpk-dev \
     libglpk40 \
     curl \
+    htop \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -65,7 +74,7 @@ RUN mkdir -p kegg_cache cache data && \
     chown -R shiny:shiny /srv/shiny-server/kegg-app && \
     chmod -R 755 /srv/shiny-server/kegg-app
 
-# Copy custom shiny-server configuration
+# Copy custom shiny-server configuration AFTER other files (cache bust: v3)
 COPY deployment/shiny-server.conf /etc/shiny-server/shiny-server.conf
 
 EXPOSE 3838
